@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/SoC-Tensor%20G4-F29900?style=for-the-badge" alt="SoC">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases">
-<img src="https://img.shields.io/badge/Version-v2.4%20STABLE-34A853?style=for-the-badge" alt="Version">
+<img src="https://img.shields.io/badge/Version-v2.5%20STABLE-34A853?style=for-the-badge" alt="Version">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
 <img src="https://img.shields.io/badge/Android-16%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
