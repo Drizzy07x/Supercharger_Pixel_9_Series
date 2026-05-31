@@ -35,6 +35,15 @@ rm -rf "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" 2>/dev/nul
 touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
 [ -f "$MODPATH/current_profile" ] || echo "active_smooth" > "$MODPATH/current_profile"
 
+if [ -f "$MODPATH/service.sh" ]; then
+  tmp="$MODPATH/service.sh.tmp.$$"
+  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.5.1"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
+    mv -f "$tmp" "$MODPATH/service.sh" 2>/dev/null
+  else
+    rm -f "$tmp" 2>/dev/null
+  fi
+fi
+
 set_perm_recursive "$MODPATH" 0 0 0755 0644
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/customize.sh" 0 0 0755
