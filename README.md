@@ -1,4 +1,4 @@
-# Pixel 9 Pro Series Supercharger v2.5 STABLE
+# Pixel 9 Pro Series Supercharger v2.5.1 STABLE
 
 <p align="center">
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/SoC-Tensor%20G4-F29900?style=for-the-badge" alt="SoC">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases">
-<img src="https://img.shields.io/badge/Version-v2.5%20STABLE-34A853?style=for-the-badge" alt="Version">
+<img src="https://img.shields.io/badge/Version-v2.5.1%20STABLE-34A853?style=for-the-badge" alt="Version">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
 <img src="https://img.shields.io/badge/Android-16%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
@@ -28,15 +28,13 @@
 
 ---
 
-## ✨ Overview
+## Overview
 
-**Pixel 9 Pro Series Supercharger** is a systemless performance module built specifically for the **Pixel 9 series on Tensor G4**.
+**Pixel 9 Pro Series Supercharger** is a systemless performance and maintenance module built for the **Pixel 9 series on Tensor G4**.
 
-The goal of this project is not to stack random tweaks or chase flashy benchmark gains.
+The goal is simple: improve daily smoothness and responsiveness without turning the device into a reckless benchmark profile.
 
-The goal is to deliver a **cleaner, safer, and more consistent daily-use profile** that improves responsiveness while respecting battery life, thermal behavior, and boot safety.
-
-`v2.4 STABLE` continues that direction by preserving the current tuning profile and improving **compatibility, diagnostics, and cross-version resilience**.
+`v2.5.1 STABLE` is a hotfix release focused on WebUI status parsing, updater metadata, and release consistency.
 
 ---
 
@@ -45,9 +43,9 @@ The goal is to deliver a **cleaner, safer, and more consistent daily-use profile
 - Improve day-to-day smoothness and responsiveness
 - Keep tuning selective and device-aware
 - Avoid unnecessary aggressive behavior
-- Preserve battery life and thermal consistency as much as possible
+- Preserve battery life and thermal consistency where possible
 - Maintain clean boot behavior and predictable runtime behavior
-- Improve logging, diagnostics, and long-term maintainability
+- Improve logging, diagnostics, and maintainability
 
 ---
 
@@ -65,78 +63,87 @@ Unsupported devices are not the target of this project.
 
 ## What the Module Does
 
-Supercharger focuses on a conservative and well-audited profile rather than extreme tuning.
+Supercharger focuses on conservative, audited tuning rather than extreme changes.
 
 ### Current tuning direction
 
-- Conservative **virtual memory tuning**
+- Conservative virtual memory tuning
 - Conditional `vm.page-cluster=0` when swap / zRAM is active
-- Selective **IRQ affinity** for:
-  - storage / UFS
-  - Wi-Fi / network
-  - touch / input
-- Safe **block I/O tuning** on valid physical devices only
-- Conservative **network tuning**
+- Selective IRQ affinity for storage, network, and input paths when accepted by the kernel
+- Safe block I/O tuning on valid physical devices only
+- Conservative network tuning
 - Read-only verification for selected system properties
 - Best-effort writes with graceful fallback on unsupported kernels
 
 ---
 
+## WebUI Dashboard
+
+The WebUI provides module status and maintenance controls without applying hidden changes by itself.
+
+It reports:
+
+- module health
+- active profile
+- root environment
+- device model and codename
+- Android release and SDK level
+- battery temperature
+- kernel and build info
+- storage and network status
+- Thermal Control addon status
+
+It also exposes:
+
+- profile selection
+- one-tap maintenance
+- app optimization tools
+- logs
+- support snapshot output
+
+---
+
+## Profiles
+
+### Active Smooth
+
+Default daily profile focused on smoothness, safe boot behavior, and consistent responsiveness.
+
+### Performance / Gaming
+
+Experimental profile intended for gaming sessions and heavier foreground workloads.
+
+It uses best-effort writes and safe fallback behavior. If the kernel rejects a node, the module leaves it unchanged.
+
+Reboot after switching profiles before judging behavior.
+
+---
+
+## Thermal Control Sync
+
+When **Supercharger Thermal Control** is installed, Supercharger requests the matching thermal profile:
+
+- Active Smooth → `balanced`
+- Performance / Gaming → `gaming`
+
+If Thermal Control is pending reboot or disabled, Supercharger reports that state and queues the request.
+
+---
+
 ## Stability-First Design
 
-This module is intentionally built around **safe application and clean fallback behavior**.
+This module is intentionally built around safe application and clean fallback behavior.
 
 That means:
 
-- no global IRQ affinity
-- no forced CPU/GPU clocks
-- no aggressive governor manipulation
-- no uclamp experiments in the stable profile
 - no blind writes to unsupported nodes
-- no version hacks tied rigidly to a single Android build
+- no global IRQ affinity
+- no forced CPU/GPU clocks in the stable profile
+- no thermal safety bypass
+- no charging behavior override
+- no version hacks tied rigidly to one Android build
 
-The stable profile is designed to feel **better in real use**, not just look louder on paper.
-
----
-
-## Compatibility & Diagnostics
-
-`v2.4 STABLE` improves compatibility across **Android 16 QPR3** and **Android 17** by relying on **real capability detection** instead of hardcoded version-specific logic.
-
-### The module now validates things like:
-
-- swap / zRAM availability
-- battery temperature node availability
-- `page-cluster` path support
-- block scheduler availability
-- scheduler option support
-- supported congestion control options
-- IRQ affinity target availability
-- writable kernel paths before applying values
-
-This makes the module more resilient across platform updates and kernel differences.
-
----
-
-## Magisk Dashboard
-
-The Magisk dashboard is designed to stay informative without becoming noisy.
-
-### It does the following:
-
-- waits for full Android boot
-- shows module status and battery temperature
-- updates temperature slowly and conditionally
-- avoids unnecessary `module.prop` rewrites
-- keeps presentation clean and readable
-
----
-
-## ☕ Support the Project
-
-If you like the project and want to support future development, testing, and refinement, you can help here:
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/Drizzy_07)
+The stable profile is designed to feel better in real use, not just look louder on paper.
 
 ---
 
@@ -146,3 +153,24 @@ All major actions are written to:
 
 ```sh
 /data/adb/modules/p9pxl_supercharger/debug.log
+```
+
+Support snapshots are written to:
+
+```sh
+/data/adb/modules/p9pxl_supercharger/support_snapshot.txt
+```
+
+---
+
+## Support the Project
+
+If you like the project and want to support future development, testing, and refinement:
+
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate-yellow?style=for-the-badge&logo=buy-me-a-coffee)](https://www.buymeacoffee.com/Drizzy_07)
+
+---
+
+## Credits
+
+Credit to the Android, Magisk, KernelSU, and Pixel kernel development communities for the platform and tooling that make systemless development possible.
