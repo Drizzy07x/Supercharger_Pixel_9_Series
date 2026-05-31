@@ -14,7 +14,7 @@ THERMAL_REQUEST_ENV="$THERMAL_REGISTRY_DIR/profile_request.env"
 PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
 
-PROFILE_VERSION="v2.5"
+PROFILE_VERSION="v2.5.1"
 PROFILE_MODE="Unknown"
 PROFILE_FILE="$MODDIR/current_profile"
 SELECTED_PROFILE="active_smooth"
