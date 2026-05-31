@@ -1,7 +1,7 @@
 id=p9pxl_supercharger
 name=Pixel 9 Series Supercharger
-version=v2.5
-versionCode=25060
+version=v2.5.1
+versionCode=25061
 author=Drizzy_07
-description=Status: v2.5 | Profiles: Active Smooth + Performance/Gaming | Open WebUI
-updateJson=https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Pro_Series/main/update.json
+description=Status: v2.5.1 | Profiles: Active Smooth + Performance/Gaming | Open WebUI
+updateJson=https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/update.json
