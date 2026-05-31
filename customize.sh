@@ -7,7 +7,7 @@ RELEASE="$(getprop ro.build.version.release)"
 
 ui_print "*********************************************************"
 ui_print "  Pixel 9 Series Supercharger"
-ui_print "  Build: v2.5"
+ui_print "  Build: v2.5.1"
 ui_print "*********************************************************"
 
 case "$DEVICE" in
