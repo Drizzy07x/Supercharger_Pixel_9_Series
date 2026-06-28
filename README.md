@@ -1,4 +1,4 @@
-# Pixel 9 Pro Series Supercharger v2.5.1 STABLE
+# Pixel 9 Pro Series Supercharger v2.6.1 STABLE
 
 <p align="center">
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/SoC-Tensor%20G4-F29900?style=for-the-badge" alt="SoC">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases">
-<img src="https://img.shields.io/badge/Version-v2.5.1%20STABLE-34A853?style=for-the-badge" alt="Version">
+<img src="https://img.shields.io/badge/Version-v2.6.1%20STABLE-34A853?style=for-the-badge" alt="Version">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
 <img src="https://img.shields.io/badge/Android-16%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
@@ -34,7 +34,7 @@
 
 The goal is simple: improve daily smoothness and responsiveness without turning the device into a reckless benchmark profile.
 
-`v2.5.1 STABLE` is a hotfix release focused on WebUI status parsing, updater metadata, and release consistency.
+`v2.6.1 STABLE` includes the Supercharger dashboard plus merged Thermal Control profile management.
 
 ---
 
@@ -91,13 +91,16 @@ It reports:
 - battery temperature
 - kernel and build info
 - storage and network status
-- Thermal Control addon status
+- merged Thermal Control status
 
 It also exposes:
 
 - profile selection
 - one-tap maintenance
 - app optimization tools
+- Android system dexopt job trigger
+- manual Thermal Control enable / disable
+- thermal profile selection for Balanced, Gaming, and Charge Cool
 - logs
 - support snapshot output
 
@@ -119,14 +122,18 @@ Reboot after switching profiles before judging behavior.
 
 ---
 
-## Thermal Control Sync
+## Merged Thermal Control
 
-When **Supercharger Thermal Control** is installed, Supercharger requests the matching thermal profile:
+Thermal Control profiles are bundled into the main Supercharger module, but the thermal overlay is **off by default**.
 
-- Active Smooth → `balanced`
-- Performance / Gaming → `gaming`
+This is intentional. The module does not place thermal config files under `system/vendor/etc` during installation. The user must enable Thermal Control manually from WebUI after confirming the device boots normally.
 
-If Thermal Control is pending reboot or disabled, Supercharger reports that state and queues the request.
+When enabled, Supercharger can keep the thermal profile aligned with the active performance profile:
+
+- Active Smooth -> `balanced`
+- Performance / Gaming -> `gaming`
+
+`charge_cool` remains a manual Thermal-only profile for charging-focused behavior. Switching Thermal Control on, changing thermal profiles, or disabling it requires a reboot before judging behavior.
 
 ---
 

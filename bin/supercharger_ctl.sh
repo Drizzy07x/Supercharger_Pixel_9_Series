@@ -14,6 +14,7 @@ APP_LOCKDIR="$MODDIR/.app_optimization.lock"
 APP_OPT_LOG="$MODDIR/app_optimization.log"
 APP_OPT_STATE="$MODDIR/app_optimization.env"
 APP_OPT_PIDFILE="$MODDIR/app_optimization.pid"
+ACQUIRED_LOCKS=""
 THERMAL_REGISTRY_DIR="/data/adb/supercharger_thermal_control"
 THERMAL_STATUS_ENV="$THERMAL_REGISTRY_DIR/status.env"
 THERMAL_REQUEST_ENV="$THERMAL_REGISTRY_DIR/profile_request.env"
@@ -21,6 +22,10 @@ MAINT_TASK_LOG="$MODDIR/maintenance_task.log"
 MAINT_STATE="$MODDIR/maintenance_task.env"
 MAINT_PIDFILE="$MODDIR/maintenance_task.pid"
 PROFILE_FILE="$MODDIR/current_profile"
+INTEGRATED_THERMAL_PROFILES="$MODDIR/thermal_profiles"
+INTEGRATED_THERMAL_STATE="$MODDIR/thermal_control.env"
+INTEGRATED_THERMAL_PROFILE_FILE="$MODDIR/thermal_current_profile"
+INTEGRATED_THERMAL_ACTIVE_DIR="$MODDIR/system/vendor/etc"
 PROFILE_VERSION="$(grep '^version=' "$PROP_FILE" 2>/dev/null | head -n 1 | cut -d= -f2-)"
 [ -z "$PROFILE_VERSION" ] && PROFILE_VERSION="unknown"
 STATUS_LOG_QUIET="${STATUS_LOG_QUIET:-0}"
@@ -132,27 +137,188 @@ thermal_profile_for() {
   esac
 }
 
+valid_integrated_thermal_profile() {
+  case "$1" in
+    balanced|gaming|charge_cool) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+integrated_thermal_label_for() {
+  case "$1" in
+    gaming) echo "Gaming" ;;
+    charge_cool) echo "Charge Cool" ;;
+    *) echo "Balanced" ;;
+  esac
+}
+
+integrated_thermal_available() {
+  [ -d "$INTEGRATED_THERMAL_PROFILES" ] || return 1
+  [ -r "$INTEGRATED_THERMAL_PROFILES/balanced/vendor/etc/thermal_info_config.json" ] || return 1
+  [ -r "$INTEGRATED_THERMAL_PROFILES/gaming/vendor/etc/thermal_info_config.json" ] || return 1
+  [ -r "$INTEGRATED_THERMAL_PROFILES/charge_cool/vendor/etc/thermal_info_config.json" ] || return 1
+  return 0
+}
+
+integrated_thermal_enabled() {
+  [ "$(env_value THERMAL_CONTROL_ENABLED "$INTEGRATED_THERMAL_STATE")" = "1" ]
+}
+
+integrated_thermal_overlay_active() {
+  [ -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" ] || return 1
+  [ -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" ] || return 1
+  return 0
+}
+
+read_integrated_thermal_profile() {
+  value=""
+  [ -r "$INTEGRATED_THERMAL_PROFILE_FILE" ] && value="$(tr -d '\r\n' < "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null)"
+  [ -z "$value" ] && value="$(env_value THERMAL_CONTROL_PROFILE "$INTEGRATED_THERMAL_STATE")"
+  valid_integrated_thermal_profile "$value" || value="$(thermal_profile_for "$(read_selected_profile)")"
+  valid_integrated_thermal_profile "$value" || value="balanced"
+  echo "$value"
+}
+
+write_integrated_thermal_state() {
+  enabled="$1"
+  profile="$2"
+  reboot="$3"
+  message="$4"
+  valid_integrated_thermal_profile "$profile" || profile="balanced"
+  mkdir -p "$MODDIR" 2>/dev/null
+  {
+    write_env_pair "THERMAL_CONTROL_MERGED" "1"
+    write_env_pair "THERMAL_CONTROL_AVAILABLE" "$(integrated_thermal_available && echo 1 || echo 0)"
+    write_env_pair "THERMAL_CONTROL_ENABLED" "$enabled"
+    write_env_pair "THERMAL_CONTROL_PROFILE" "$profile"
+    write_env_pair "THERMAL_CONTROL_LABEL" "$(integrated_thermal_label_for "$profile")"
+    write_env_pair "THERMAL_CONTROL_OVERLAY_ACTIVE" "$(integrated_thermal_overlay_active && echo 1 || echo 0)"
+    write_env_pair "THERMAL_CONTROL_REBOOT_REQUIRED" "$reboot"
+    write_env_pair "THERMAL_CONTROL_MESSAGE" "$message"
+    write_env_pair "LAST_UPDATED" "$(date)"
+  } > "$INTEGRATED_THERMAL_STATE" 2>/dev/null
+  chmod 0644 "$INTEGRATED_THERMAL_STATE" 2>/dev/null
+  echo "$profile" > "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
+  chmod 0644 "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
+}
+
+ensure_integrated_thermal_state() {
+  integrated_thermal_available || return 0
+  [ -r "$INTEGRATED_THERMAL_STATE" ] && return 0
+  profile="$(thermal_profile_for "$(read_selected_profile)")"
+  write_integrated_thermal_state 0 "$profile" 0 "Thermal Control is off by default. Enable it manually from WebUI."
+}
+
+remove_integrated_thermal_overlay() {
+  rm -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" \
+        "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" \
+        "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_charge.json" 2>/dev/null || true
+  rmdir "$INTEGRATED_THERMAL_ACTIVE_DIR" "$MODDIR/system/vendor" "$MODDIR/system" 2>/dev/null || true
+}
+
+apply_integrated_thermal_profile() {
+  profile="$1"
+  source="${2:-thermal_control}"
+  fail_message=""
+  valid_integrated_thermal_profile "$profile" || {
+    echo "Invalid thermal profile: $profile"
+    echo "Available thermal profiles: balanced, gaming, charge_cool"
+    return 1
+  }
+  if ! integrated_thermal_available; then
+    echo "Merged Thermal Control profiles are not available."
+    return 1
+  fi
+
+  srcdir="$INTEGRATED_THERMAL_PROFILES/$profile/vendor/etc"
+  mkdir -p "$INTEGRATED_THERMAL_ACTIVE_DIR" 2>/dev/null || {
+    echo "Could not prepare thermal overlay directory."
+    return 1
+  }
+
+  fail_apply() {
+    fail_message="$1"
+    echo "$fail_message"
+    remove_integrated_thermal_overlay
+    write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled after a failed profile apply. Reboot required before trying again."
+    return 1
+  }
+
+  cp -f "$srcdir/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" 2>/dev/null || fail_apply "Could not copy thermal_info_config.json." || return 1
+  cp -f "$srcdir/thermal_info_config_lpm.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" 2>/dev/null || fail_apply "Could not copy thermal_info_config_lpm.json." || return 1
+  rm -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_charge.json" 2>/dev/null || true
+  chmod 0644 "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" 2>/dev/null || true
+
+  if ! cmp -s "$srcdir/thermal_info_config.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json"; then
+    fail_apply "Thermal profile verification failed: thermal_info_config.json"
+    return 1
+  fi
+  if ! cmp -s "$srcdir/thermal_info_config_lpm.json" "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json"; then
+    fail_apply "Thermal profile verification failed: thermal_info_config_lpm.json"
+    return 1
+  fi
+
+  if [ "$source" = "thermal_control" ]; then
+    if mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null; then
+      {
+        write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$profile"
+        write_env_pair "THERMAL_REQUEST_SOURCE" "thermal_control"
+        write_env_pair "LAST_UPDATED" "$(date)"
+      } > "$THERMAL_REQUEST_ENV" 2>/dev/null
+      chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
+    fi
+  fi
+
+  write_integrated_thermal_state 1 "$profile" 1 "Thermal Control enabled. Reboot required to apply the selected thermal profile."
+  echo "Thermal Control: enabled"
+  echo "Thermal profile: $(integrated_thermal_label_for "$profile")"
+  echo "Restart required to apply the selected thermal profile."
+}
+
+disable_integrated_thermal_control() {
+  profile="$(read_integrated_thermal_profile)"
+  remove_integrated_thermal_overlay
+  write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled. Reboot required to remove the thermal overlay."
+  echo "Thermal Control: disabled"
+  echo "Thermal overlay files removed from the module."
+  echo "Restart required to return to ROM/vendor thermal behavior."
+}
+
+integrated_thermal_status() {
+  ensure_integrated_thermal_state
+  profile="$(read_integrated_thermal_profile)"
+  enabled=0
+  integrated_thermal_enabled && enabled=1
+  available=0
+  integrated_thermal_available && available=1
+  overlay=0
+  integrated_thermal_overlay_active && overlay=1
+  reboot="$(env_value THERMAL_CONTROL_REBOOT_REQUIRED "$INTEGRATED_THERMAL_STATE")"
+  [ -z "$reboot" ] && reboot=0
+  message="$(env_value THERMAL_CONTROL_MESSAGE "$INTEGRATED_THERMAL_STATE")"
+  [ -z "$message" ] && message="Thermal Control is off by default. Enable it manually from WebUI."
+  write_env_pair "THERMAL_CONTROL_MERGED" "1"
+  write_env_pair "THERMAL_CONTROL_AVAILABLE" "$available"
+  write_env_pair "THERMAL_CONTROL_ENABLED" "$enabled"
+  write_env_pair "THERMAL_CONTROL_PROFILE" "$profile"
+  write_env_pair "THERMAL_CONTROL_LABEL" "$(integrated_thermal_label_for "$profile")"
+  write_env_pair "THERMAL_CONTROL_OVERLAY_ACTIVE" "$overlay"
+  write_env_pair "THERMAL_CONTROL_REBOOT_REQUIRED" "$reboot"
+  write_env_pair "THERMAL_CONTROL_MESSAGE" "$message"
+}
+
 adopt_thermal_control_selection() {
   local request_env="$THERMAL_REQUEST_ENV"
   local status_env="$THERMAL_REGISTRY_DIR/status.env"
   local source=""
   local requested=""
-  local current=""
   local mapped=""
 
   [ -r "$request_env" ] && source="$(env_value THERMAL_REQUEST_SOURCE "$request_env")"
   [ -r "$request_env" ] && requested="$(env_value SUPERCHARGER_THERMAL_PROFILE_REQUEST "$request_env")"
-  [ -r "$status_env" ] && current="$(env_value CURRENT_PROFILE "$status_env")"
 
   if [ "$source" = "thermal_control" ]; then
     case "$requested" in
-      gaming) mapped="performance_gaming" ;;
-      balanced) mapped="active_smooth" ;;
-    esac
-  fi
-
-  if [ -z "$mapped" ]; then
-    case "$current" in
       gaming) mapped="performance_gaming" ;;
       balanced) mapped="active_smooth" ;;
     esac
@@ -248,20 +414,38 @@ thermal_addon_state_label() {
 }
 
 write_thermal_request() {
+  local target source current_target
   target="$1"
-  mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null
-  {
-    write_env_pair "SUPERCHARGER_MODULE_ID" "p9pxl_supercharger"
-    write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$target"
-    write_env_pair "THERMAL_REQUEST_SOURCE" "supercharger"
-    write_env_pair "LAST_UPDATED" "$(date)"
-  } > "$THERMAL_REQUEST_ENV" 2>/dev/null
-  chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
+  if [ "${SUPERCHARGER_FORCE_THERMAL_REQUEST:-0}" != "1" ]; then
+    source="$(env_value THERMAL_REQUEST_SOURCE "$THERMAL_REQUEST_ENV")"
+    current_target="$(env_value SUPERCHARGER_THERMAL_PROFILE_REQUEST "$THERMAL_REQUEST_ENV")"
+    if [ "$source" = "thermal_control" ] && [ "$current_target" = "charge_cool" ]; then
+      return 0
+    fi
+  fi
+  if mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null; then
+    {
+      write_env_pair "SUPERCHARGER_MODULE_ID" "p9pxl_supercharger"
+      write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$target"
+      write_env_pair "THERMAL_REQUEST_SOURCE" "supercharger"
+      write_env_pair "LAST_UPDATED" "$(date)"
+    } > "$THERMAL_REQUEST_ENV" 2>/dev/null
+    chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
+  fi
 }
 
 sync_thermal_addon_profile() {
   target="$1"
-  write_thermal_request "$target"
+  SUPERCHARGER_FORCE_THERMAL_REQUEST=1 write_thermal_request "$target"
+  if integrated_thermal_available; then
+    if integrated_thermal_enabled; then
+      apply_integrated_thermal_profile "$target" "supercharger"
+      return $?
+    fi
+    echo "Thermal Control: merged but off. Enable it manually in WebUI to avoid bootloops."
+    return 0
+  fi
+
   addon_dir="$(thermal_addon_dir)"
   if [ -z "$addon_dir" ]; then
     echo "Thermal Control: not installed"
@@ -286,6 +470,8 @@ sync_thermal_addon_profile() {
 
 set_supercharger_profile() {
   target="$1"
+  sync_output=""
+  sync_status=0
   case "$target" in
     active_smooth|performance_gaming) : ;;
     *)
@@ -301,8 +487,15 @@ set_supercharger_profile() {
   echo "Selected profile: $label"
   echo "Supercharger profile ID: $target"
   echo "Thermal profile target: $thermal"
-  sync_thermal_addon_profile "$thermal"
+  sync_output="$(sync_thermal_addon_profile "$thermal" 2>&1)"
+  sync_status=$?
+  [ -n "$sync_output" ] && printf '%s\n' "$sync_output"
   STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
+  if [ "$sync_status" -ne 0 ]; then
+    echo "Thermal Control: sync warning (exit $sync_status)"
+    echo "Supercharger profile was saved, but the thermal profile switch did not complete."
+    log_maintenance "profile selected with thermal sync warning: $target thermal_target=$thermal rc=$sync_status"
+  fi
   log_maintenance "profile selected: $target thermal_target=$thermal"
   echo "Profile state updated. Reboot recommended before evaluating behavior."
 }
@@ -335,6 +528,13 @@ has_active_swap() {
 }
 
 detect_thermal_addon() {
+  if integrated_thermal_available; then
+    enabled="off"
+    integrated_thermal_enabled && enabled="on"
+    echo "1|merged ($enabled)"
+    return 0
+  fi
+
   addon_dir="$(thermal_addon_dir)"
   if [ -n "$addon_dir" ]; then
     addon_version="$(grep -im1 '^version=' "$addon_dir/module.prop" 2>/dev/null | cut -d= -f2-)"
@@ -477,6 +677,7 @@ physical_block_list() {
 }
 
 write_status() {
+  ensure_integrated_thermal_state
   adopt_thermal_control_selection
   selected_profile="$(read_selected_profile)"
   profile_label="$(profile_label_for "$selected_profile")"
@@ -591,6 +792,7 @@ write_status() {
     write_env_pair "NETWORK_CAPABILITY_SUMMARY" "qdisc=$(safe_read /proc/sys/net/core/default_qdisc), cc=$(safe_read /proc/sys/net/ipv4/tcp_congestion_control), fastopen=$(safe_read /proc/sys/net/ipv4/tcp_fastopen)"
     write_env_pair "THERMAL_ADDON_INSTALLED" "$addon_installed"
     write_env_pair "THERMAL_ADDON_VERSION" "$addon_version"
+    integrated_thermal_status
     write_env_pair "DASHBOARD_UPDATER_PID" "$updater_pid"
     write_env_pair "DASHBOARD_UPDATER_STATE" "$updater_status"
     write_env_pair "TASK_STATE" "$task_state"
@@ -624,6 +826,7 @@ write_status() {
     write_env_pair "ROOT_ENV" "$root_env"
     write_env_pair "THERMAL_ADDON_INSTALLED" "$addon_installed"
     write_env_pair "THERMAL_ADDON_VERSION" "$addon_version"
+    integrated_thermal_status
     write_env_pair "LAST_UPDATED" "$(date)"
   } > "$ADDON_API_ENV"
 
@@ -950,7 +1153,8 @@ acquire_lock_or_exit() {
   lock_path="$1"
   label="$2"
   if mkdir "$lock_path" 2>/dev/null; then
-    trap 'rm -rf "$MAINT_LOCKDIR" "$APP_LOCKDIR" 2>/dev/null' EXIT INT TERM
+    ACQUIRED_LOCKS="${ACQUIRED_LOCKS}${ACQUIRED_LOCKS:+ }$lock_path"
+    trap 'release_locks' EXIT INT TERM
     return 0
   fi
   echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
@@ -958,7 +1162,10 @@ acquire_lock_or_exit() {
 }
 
 release_locks() {
-  rm -rf "$MAINT_LOCKDIR" "$APP_LOCKDIR" 2>/dev/null
+  for lock_path in $ACQUIRED_LOCKS; do
+    [ -n "$lock_path" ] && rm -rf "$lock_path" 2>/dev/null
+  done
+  ACQUIRED_LOCKS=""
   trap - EXIT INT TERM
 }
 
@@ -1214,6 +1421,36 @@ optimize_all_listed_apps() {
   optimize_package_list "listed apps and safe system apps" "$apps"
 }
 
+run_system_dexopt_job() {
+  acquire_lock_or_exit "$APP_LOCKDIR" "System dexopt job" || return 1
+  echo "Running Android system dexopt job"
+  echo "Mode: package manager bg-dexopt-job"
+  echo "This does not change CPU, GPU, thermal, scheduler, charging, or kernel tuning."
+  echo ""
+
+  if ! command -v cmd >/dev/null 2>&1; then
+    echo "[FAIL] Android cmd package service is unavailable."
+    log_maintenance "system dexopt job failed: cmd unavailable"
+    release_locks
+    return 1
+  fi
+
+  cmd package bg-dexopt-job 2>&1
+  rc="$?"
+  if [ "$rc" -eq 0 ]; then
+    echo "[PASS] Android system dexopt job completed."
+    log_maintenance "system dexopt job completed"
+    release_locks
+    return 0
+  fi
+
+  echo "[WARN] Android system dexopt job returned rc=$rc"
+  echo "Some Android builds refuse this job outside their normal idle maintenance window."
+  log_maintenance "system dexopt job returned warning: rc=$rc"
+  release_locks
+  return "$rc"
+}
+
 maintenance_running() {
   [ -f "$MAINT_PIDFILE" ] || return 1
   pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
@@ -1404,6 +1641,7 @@ run_app_opt_background() {
     all) label="Optimizing listed apps" ;;
     system) label="Optimizing safe system apps" ;;
     selected) label="Optimizing selected app: $target" ;;
+    dexopt) label="Android system dexopt job" ;;
     *) echo "[FAIL] Unknown app optimization mode: $mode"; return 1 ;;
   esac
 
@@ -1428,6 +1666,7 @@ run_app_opt_background() {
       all) optimize_all_listed_apps ;;
       system) optimize_safe_system_apps ;;
       selected) optimize_one_app "$target" ;;
+      dexopt) run_system_dexopt_job ;;
     esac
     rc="$?"
     echo "" >> "$APP_OPT_LOG"
@@ -1485,6 +1724,37 @@ thermal_debug() {
     done
   done
 }
+
+thermal_status_command() {
+  integrated_thermal_status
+}
+
+thermal_enable_command() {
+  profile="$1"
+  [ -n "$profile" ] || profile="$(thermal_profile_for "$(read_selected_profile)")"
+  apply_integrated_thermal_profile "$profile" "thermal_control"
+}
+
+thermal_set_profile_command() {
+  profile="$1"
+  if ! integrated_thermal_enabled; then
+    echo "Thermal Control is off."
+    echo "Enable it manually before changing thermal profiles."
+    return 1
+  fi
+  apply_integrated_thermal_profile "$profile" "thermal_control"
+}
+
+thermal_disable_command() {
+  disable_integrated_thermal_control
+}
+
+thermal_profiles_command() {
+  echo "balanced|Balanced|Daily thermal behavior"
+  echo "gaming|Gaming|Sustained gaming thermal behavior"
+  echo "charge_cool|Charge Cool|Charging-focused thermal behavior"
+}
+
 gpu_scan() {
   echo "GPU/devfreq scan"
   echo "Kernel: $(uname -r 2>/dev/null)"
@@ -1529,6 +1799,11 @@ case "$1" in
   profiles) list_profiles ;;
   profile-status) profile_status ;;
   thermal-detect) thermal_debug ;;
+  thermal-status) thermal_status_command ;;
+  thermal-enable) thermal_enable_command "$2" ;;
+  thermal-disable) thermal_disable_command ;;
+  thermal-set-profile) thermal_set_profile_command "$2" ;;
+  thermal-profiles) thermal_profiles_command ;;
   gpu-scan) gpu_scan ;;
   set-profile) set_supercharger_profile "$2" ;;
   list-apps) list_optimizable_apps ;;
@@ -1538,14 +1813,16 @@ case "$1" in
   optimize-user-apps) optimize_user_apps ;;
   optimize-system-apps) optimize_safe_system_apps ;;
   optimize-apps) optimize_all_listed_apps ;;
+  dexopt-job) run_system_dexopt_job ;;
   optimize-app-async) run_app_opt_background selected "$2" ;;
   optimize-system-apps-async) run_app_opt_background system ;;
   optimize-apps-async) run_app_opt_background all ;;
+  dexopt-job-async) run_app_opt_background dexopt ;;
   app-opt-status) app_opt_status ;;
   app-opt-log) app_opt_log ;;
   clear-maintenance) clear_maintenance_log ;;
   *)
-    echo "Usage: $0 {status|snapshot|processes|verify|reapply-safe|health|repair-dashboard|cleanup-updater|maintenance-all|storage|profiles|profile-status|thermal-detect|set-profile|list-apps|list-user-apps|list-system-apps|optimize-app|optimize-user-apps|optimize-system-apps|optimize-apps|optimize-app-async|optimize-system-apps-async|optimize-apps-async|app-opt-status|app-opt-log|clear-maintenance|maintenance-all-async|maintenance-status|maintenance-log|gpu-scan}"
+    echo "Usage: $0 {status|snapshot|processes|verify|reapply-safe|health|repair-dashboard|cleanup-updater|maintenance-all|storage|profiles|profile-status|thermal-detect|thermal-status|thermal-enable|thermal-disable|thermal-set-profile|thermal-profiles|set-profile|list-apps|list-user-apps|list-system-apps|optimize-app|optimize-user-apps|optimize-system-apps|optimize-apps|dexopt-job|optimize-app-async|optimize-system-apps-async|optimize-apps-async|dexopt-job-async|app-opt-status|app-opt-log|clear-maintenance|maintenance-all-async|maintenance-status|maintenance-log|gpu-scan}"
     exit 1
     ;;
 esac

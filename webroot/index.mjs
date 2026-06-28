@@ -48,11 +48,19 @@ function parseEnv(text){
 function setText(id, value){ const el = $(id); if(el) el.textContent = value || '—'; }
 function setPill(id, text, kind){ const el = $(id); if(!el) return; el.textContent = text || '—'; el.className = `pill ${kind || ''}`.trim(); }
 function isRunning(value){ return String(value || '').toLowerCase() === 'running'; }
-function setActionsBusy(busy){ commandBusy = busy; $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = busy; }); updateProfileButtons(); }
+function setActionsBusy(busy){ commandBusy = busy; $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = busy; }); updateProfileButtons(); updateThermalButtons(); }
 function showHeaderTask(label){ setText('#statusValue', 'Working'); setText('#statusSub', label || 'Background task running'); }
 
-function addonLabel(s){ return String(s.THERMAL_ADDON_INSTALLED || '0') === '1' ? 'Installed' : 'Not installed'; }
+function addonLabel(s){
+  if(String(s.THERMAL_CONTROL_MERGED || '0') === '1') return 'Merged';
+  return String(s.THERMAL_ADDON_INSTALLED || '0') === '1' ? 'Installed' : 'Not installed';
+}
 function addonSub(s){
+  if(String(s.THERMAL_CONTROL_MERGED || '0') === '1'){
+    const mode = thermalEnabled() ? 'on' : 'off';
+    const profile = s.THERMAL_CONTROL_LABEL || thermalProfile();
+    return `${mode} · ${profile}`;
+  }
   const installed = String(s.THERMAL_ADDON_INSTALLED || '0') === '1';
   const target = s.THERMAL_PROFILE_REQUEST ? ` · target: ${s.THERMAL_PROFILE_REQUEST}` : '';
   return installed ? `${s.THERMAL_ADDON_VERSION || 'installed'}${target}` : `not available${target}`;
@@ -147,6 +155,27 @@ function updateProfileButtons(){
   if(g) g.disabled = commandBusy || selected === 'performance_gaming';
 }
 
+function thermalEnabled(){ return String(status.THERMAL_CONTROL_ENABLED || '0') === '1'; }
+function thermalAvailable(){ return String(status.THERMAL_CONTROL_AVAILABLE || '0') === '1'; }
+function thermalProfile(){ return status.THERMAL_CONTROL_PROFILE || status.THERMAL_PROFILE_REQUEST || 'balanced'; }
+
+function updateThermalButtons(){
+  const available = thermalAvailable();
+  const enabled = thermalEnabled();
+  const profile = thermalProfile();
+  const enable = $('#thermalEnableBtn');
+  const disable = $('#thermalDisableBtn');
+  const balanced = $('#thermalBalancedBtn');
+  const gaming = $('#thermalGamingBtn');
+  const charge = $('#thermalChargeCoolBtn');
+
+  if(enable) enable.disabled = commandBusy || !available || enabled;
+  if(disable) disable.disabled = commandBusy || !available || !enabled;
+  if(balanced) balanced.disabled = commandBusy || !available || (enabled && profile === 'balanced');
+  if(gaming) gaming.disabled = commandBusy || !available || (enabled && profile === 'gaming');
+  if(charge) charge.disabled = commandBusy || !available || (enabled && profile === 'charge_cool');
+}
+
 function renderStatus(){
   const health = (status.HEALTH || 'unknown').toLowerCase();
   const healthKind = health === 'pass' ? 'good' : (health === 'warn' ? 'warn' : 'bad');
@@ -168,6 +197,10 @@ function renderStatus(){
   setText('#deviceSub', `Android ${status.ANDROID_RELEASE || '—'} / SDK ${status.ANDROID_SDK || '—'} · ${status.ROOT_ENV || 'Root unknown'}`);
   setText('#addonValue', addonLabel(status));
   setText('#addonSub', addonSub(status));
+  setText('#thermalStateValue', thermalEnabled() ? 'On' : 'Off');
+  setText('#thermalProfileValue', status.THERMAL_CONTROL_LABEL || thermalProfile());
+  setText('#thermalRebootValue', String(status.THERMAL_CONTROL_REBOOT_REQUIRED || '0') === '1' ? 'Required' : 'Not required');
+  setText('#thermalMessage', status.THERMAL_CONTROL_MESSAGE || 'Thermal Control is off by default. Enable it manually from WebUI.');
   setPill('#healthPill', `Health: ${status.HEALTH || 'unknown'}`, healthKind);
   setPill('#rootPill', `Root: ${status.ROOT_ENV || 'unknown'}`, '');
   setPill('#tempPill', `Temp: ${status.BATTERY_TEMP || 'unknown'}`, '');
@@ -179,6 +212,7 @@ function renderStatus(){
   setText('#swapValue', String(status.SWAP_ACTIVE || '0') === '1' ? `Active / page-cluster ${status.PAGE_CLUSTER_STATUS || '—'}` : 'Not active');
   setText('#updatedValue', status.LAST_UPDATED || '—');
   renderProfileCards();
+  updateThermalButtons();
 }
 
 async function syncTaskStates(){
@@ -442,6 +476,26 @@ async function setProfile(profile){
   }
 }
 
+async function runThermal(command, label){
+  if(commandBusy) return;
+  setActionsBusy(true);
+  $('#thermalBox').textContent = `${label}…`;
+  try {
+    const out = await sh(`sh '${CTL}' ${command}`);
+    $('#thermalBox').textContent = out.trim() || 'Thermal command completed.';
+    await refreshStatus();
+  } catch(e){
+    $('#thermalBox').textContent = `Thermal command failed:\n${e.message}`;
+  } finally {
+    setActionsBusy(false);
+  }
+}
+
+function setThermalProfile(profile){
+  const command = thermalEnabled() ? `thermal-set-profile ${shellQuote(profile)}` : `thermal-enable ${shellQuote(profile)}`;
+  runThermal(command, `Applying ${profile.replace('_', ' ')}`);
+}
+
 function resumeActiveTaskPolling(){
   if(isRunning(status.APP_OPT_TASK_STATE)) startOptimizationPolling(status.APP_OPT_TASK_LABEL || 'App optimization');
   if(isRunning(status.MAINTENANCE_TASK_STATE)) startMaintenancePolling(status.MAINTENANCE_TASK_LABEL || 'One-tap maintenance');
@@ -463,6 +517,7 @@ $('#refreshAppsBtn')?.addEventListener('click', loadAppList);
 $('#appSearch')?.addEventListener('input', () => renderAppList($('#appSearch').value));
 $('#optimizeAllBtn')?.addEventListener('click', () => runOptimization('Optimizing listed apps', `sh '${CTL}' optimize-apps-async`));
 $('#optimizeSystemBtn')?.addEventListener('click', () => runOptimization('Optimizing safe system apps', `sh '${CTL}' optimize-system-apps-async`));
+$('#dexoptJobBtn')?.addEventListener('click', () => runOptimization('Android system dexopt job', `sh '${CTL}' dexopt-job-async`));
 $('#optimizeSelectedBtn')?.addEventListener('click', () => {
   const pkg = $('#appSelect').value;
   if(!pkg){ $('#optimizationBox').textContent = 'Select an app first.'; return; }
@@ -470,6 +525,11 @@ $('#optimizeSelectedBtn')?.addEventListener('click', () => {
 });
 $('#setActiveSmoothBtn')?.addEventListener('click', () => setProfile('active_smooth'));
 $('#setGamingBtn')?.addEventListener('click', () => setProfile('performance_gaming'));
+$('#thermalEnableBtn')?.addEventListener('click', () => runThermal('thermal-enable', 'Enabling Thermal Control'));
+$('#thermalDisableBtn')?.addEventListener('click', () => runThermal('thermal-disable', 'Disabling Thermal Control'));
+$('#thermalBalancedBtn')?.addEventListener('click', () => setThermalProfile('balanced'));
+$('#thermalGamingBtn')?.addEventListener('click', () => setThermalProfile('gaming'));
+$('#thermalChargeCoolBtn')?.addEventListener('click', () => setThermalProfile('charge_cool'));
 $('#loadSnapshotBtn')?.addEventListener('click', loadSnapshot);
 $('#copySnapshotBtn')?.addEventListener('click', () => copyText($('#snapshotBox').textContent || '', $('#copySnapshotBtn')));
 

@@ -7,7 +7,7 @@ RELEASE="$(getprop ro.build.version.release)"
 
 ui_print "*********************************************************"
 ui_print "  Pixel 9 Series Supercharger"
-ui_print "  Build: v2.5.1"
+ui_print "  Build: v2.6.1"
 ui_print "*********************************************************"
 
 case "$DEVICE" in
@@ -34,28 +34,48 @@ rm -rf "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" 2>/dev/nul
 [ -f "$MODPATH/debug.log" ] && mv -f "$MODPATH/debug.log" "$MODPATH/debug.previous.log" 2>/dev/null
 touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
 [ -f "$MODPATH/current_profile" ] || echo "active_smooth" > "$MODPATH/current_profile"
+rm -f "$MODPATH/system/vendor/etc/thermal_info_config.json" \
+      "$MODPATH/system/vendor/etc/thermal_info_config_lpm.json" \
+      "$MODPATH/system/vendor/etc/thermal_info_config_charge.json" 2>/dev/null
+rmdir "$MODPATH/system/vendor/etc" "$MODPATH/system/vendor" "$MODPATH/system" 2>/dev/null || true
+cat > "$MODPATH/thermal_control.env" <<'EOF_THERMAL_DEFAULT'
+THERMAL_CONTROL_MERGED="1"
+THERMAL_CONTROL_AVAILABLE="1"
+THERMAL_CONTROL_ENABLED="0"
+THERMAL_CONTROL_PROFILE="balanced"
+THERMAL_CONTROL_LABEL="Balanced"
+THERMAL_CONTROL_OVERLAY_ACTIVE="0"
+THERMAL_CONTROL_REBOOT_REQUIRED="0"
+THERMAL_CONTROL_MESSAGE="Thermal Control is off by default. Enable it manually from WebUI."
+EOF_THERMAL_DEFAULT
+[ -f "$MODPATH/thermal_current_profile" ] || echo "balanced" > "$MODPATH/thermal_current_profile"
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"
-  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.5.1"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
+  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.1"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$MODPATH/service.sh" 2>/dev/null
   else
     rm -f "$tmp" 2>/dev/null
   fi
 fi
 
-set_perm_recursive "$MODPATH" 0 0 0755 0644
+set_perm "$MODPATH" 0 0 0755
+set_perm "$MODPATH/module.prop" 0 0 0644
+set_perm "$MODPATH/system.prop" 0 0 0644
+set_perm "$MODPATH/update.json" 0 0 0644
 set_perm "$MODPATH/service.sh" 0 0 0755
 set_perm "$MODPATH/customize.sh" 0 0 0755
 set_perm "$MODPATH/uninstall.sh" 0 0 0755
 [ -d "$MODPATH/bin" ] && set_perm_recursive "$MODPATH/bin" 0 0 0755 0755
-[ -d "$MODPATH/webroot" ] && set_perm_recursive "$MODPATH/webroot" 0 0 0755 0644
+[ -d "$MODPATH/thermal_profiles" ] && set_perm_recursive "$MODPATH/thermal_profiles" 0 0 0755 0644
 set_perm "$MODPATH/debug.log" 0 0 0644
 set_perm "$MODPATH/maintenance.log" 0 0 0644
 set_perm "$MODPATH/module_status.env" 0 0 0644
 set_perm "$MODPATH/addon_api.env" 0 0 0644
 set_perm "$MODPATH/support_snapshot.txt" 0 0 0644
 set_perm "$MODPATH/current_profile" 0 0 0644
+set_perm "$MODPATH/thermal_control.env" 0 0 0644
+set_perm "$MODPATH/thermal_current_profile" 0 0 0644
 
 ui_print ""
 ui_print " [OK] Installation complete. Reboot required."

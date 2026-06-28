@@ -11,10 +11,14 @@ ADDON_API_ENV="$MODDIR/addon_api.env"
 THERMAL_REGISTRY_DIR="/data/adb/supercharger_thermal_control"
 THERMAL_STATUS_ENV="$THERMAL_REGISTRY_DIR/status.env"
 THERMAL_REQUEST_ENV="$THERMAL_REGISTRY_DIR/profile_request.env"
+INTEGRATED_THERMAL_PROFILES="$MODDIR/thermal_profiles"
+INTEGRATED_THERMAL_STATE="$MODDIR/thermal_control.env"
+INTEGRATED_THERMAL_PROFILE_FILE="$MODDIR/thermal_current_profile"
+INTEGRATED_THERMAL_ACTIVE_DIR="$MODDIR/system/vendor/etc"
 PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
 
-PROFILE_VERSION="v2.5.1"
+PROFILE_VERSION="v2.6.1"
 PROFILE_MODE="Unknown"
 PROFILE_FILE="$MODDIR/current_profile"
 SELECTED_PROFILE="active_smooth"
@@ -356,25 +360,15 @@ thermal_profile_for() {
 
 adopt_thermal_control_selection() {
     local request_env="$THERMAL_REQUEST_ENV"
-    local status_env="$THERMAL_REGISTRY_DIR/status.env"
     local source=""
     local requested=""
-    local current=""
     local mapped=""
 
     [ -r "$request_env" ] && source="$(env_value THERMAL_REQUEST_SOURCE "$request_env")"
     [ -r "$request_env" ] && requested="$(env_value SUPERCHARGER_THERMAL_PROFILE_REQUEST "$request_env")"
-    [ -r "$status_env" ] && current="$(env_value CURRENT_PROFILE "$status_env")"
 
     if [ "$source" = "thermal_control" ]; then
         case "$requested" in
-            gaming) mapped="performance_gaming" ;;
-            balanced) mapped="active_smooth" ;;
-        esac
-    fi
-
-    if [ -z "$mapped" ]; then
-        case "$current" in
             gaming) mapped="performance_gaming" ;;
             balanced) mapped="active_smooth" ;;
         esac
@@ -1456,20 +1450,95 @@ thermal_addon_state_label() {
 }
 
 write_thermal_request() {
-    local target
+    local target source current_target
     target="$1"
-    mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null
-    {
-        write_env_pair "SUPERCHARGER_MODULE_ID" "p9pxl_supercharger"
-        write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$target"
-        write_env_pair "THERMAL_REQUEST_SOURCE" "supercharger"
-        write_env_pair "LAST_UPDATED" "$(date)"
-    } > "$THERMAL_REQUEST_ENV" 2>/dev/null
-    chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
+    if [ "${SUPERCHARGER_FORCE_THERMAL_REQUEST:-0}" != "1" ]; then
+        source="$(env_value THERMAL_REQUEST_SOURCE "$THERMAL_REQUEST_ENV")"
+        current_target="$(env_value SUPERCHARGER_THERMAL_PROFILE_REQUEST "$THERMAL_REQUEST_ENV")"
+        if [ "$source" = "thermal_control" ] && [ "$current_target" = "charge_cool" ]; then
+            return 0
+        fi
+    fi
+    if mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null; then
+        {
+            write_env_pair "SUPERCHARGER_MODULE_ID" "p9pxl_supercharger"
+            write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$target"
+            write_env_pair "THERMAL_REQUEST_SOURCE" "supercharger"
+            write_env_pair "LAST_UPDATED" "$(date)"
+        } > "$THERMAL_REQUEST_ENV" 2>/dev/null
+        chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
+    fi
+}
+
+integrated_thermal_label_for() {
+    case "$1" in
+        gaming) echo "Gaming" ;;
+        charge_cool) echo "Charge Cool" ;;
+        *) echo "Balanced" ;;
+    esac
+}
+
+integrated_thermal_available() {
+    [ -d "$INTEGRATED_THERMAL_PROFILES" ] || return 1
+    [ -r "$INTEGRATED_THERMAL_PROFILES/balanced/vendor/etc/thermal_info_config.json" ] || return 1
+    [ -r "$INTEGRATED_THERMAL_PROFILES/gaming/vendor/etc/thermal_info_config.json" ] || return 1
+    [ -r "$INTEGRATED_THERMAL_PROFILES/charge_cool/vendor/etc/thermal_info_config.json" ] || return 1
+    return 0
+}
+
+integrated_thermal_overlay_active() {
+    [ -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config.json" ] || return 1
+    [ -f "$INTEGRATED_THERMAL_ACTIVE_DIR/thermal_info_config_lpm.json" ] || return 1
+    return 0
+}
+
+read_integrated_thermal_profile() {
+    local value
+    [ -r "$INTEGRATED_THERMAL_PROFILE_FILE" ] && value="$(tr -d '\r\n' < "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null)"
+    [ -z "$value" ] && value="$(env_value THERMAL_CONTROL_PROFILE "$INTEGRATED_THERMAL_STATE")"
+    case "$value" in
+        balanced|gaming|charge_cool) echo "$value" ;;
+        *) echo "$THERMAL_PROFILE_REQUEST" ;;
+    esac
+}
+
+emit_integrated_thermal_status() {
+    local available enabled profile overlay reboot message
+    available=0
+    integrated_thermal_available && available=1
+    enabled=0
+    [ "$(env_value THERMAL_CONTROL_ENABLED "$INTEGRATED_THERMAL_STATE")" = "1" ] && enabled=1
+    profile="$(read_integrated_thermal_profile)"
+    [ -z "$profile" ] && profile="balanced"
+    overlay=0
+    integrated_thermal_overlay_active && overlay=1
+    reboot="$(env_value THERMAL_CONTROL_REBOOT_REQUIRED "$INTEGRATED_THERMAL_STATE")"
+    [ -z "$reboot" ] && reboot=0
+    message="$(env_value THERMAL_CONTROL_MESSAGE "$INTEGRATED_THERMAL_STATE")"
+    [ -z "$message" ] && message="Thermal Control is off by default. Enable it manually from WebUI."
+
+    write_env_pair "THERMAL_CONTROL_MERGED" "1"
+    write_env_pair "THERMAL_CONTROL_AVAILABLE" "$available"
+    write_env_pair "THERMAL_CONTROL_ENABLED" "$enabled"
+    write_env_pair "THERMAL_CONTROL_PROFILE" "$profile"
+    write_env_pair "THERMAL_CONTROL_LABEL" "$(integrated_thermal_label_for "$profile")"
+    write_env_pair "THERMAL_CONTROL_OVERLAY_ACTIVE" "$overlay"
+    write_env_pair "THERMAL_CONTROL_REBOOT_REQUIRED" "$reboot"
+    write_env_pair "THERMAL_CONTROL_MESSAGE" "$message"
 }
 
 detect_thermal_addon() {
     local addon_dir prop addon_state reg_installed reg_version reg_state
+
+    if [ -d "$INTEGRATED_THERMAL_PROFILES" ]; then
+        THERMAL_ADDON_INSTALLED=1
+        if [ "$(env_value THERMAL_CONTROL_ENABLED "$INTEGRATED_THERMAL_STATE")" = "1" ]; then
+            THERMAL_ADDON_VERSION="merged (on)"
+        else
+            THERMAL_ADDON_VERSION="merged (off)"
+        fi
+        return 0
+    fi
 
     addon_dir="$(thermal_addon_dir)"
     if [ -n "$addon_dir" ]; then
@@ -1524,6 +1593,7 @@ write_addon_api() {
         write_env_pair "ROOT_ENV" "$ROOT_ENV"
         write_env_pair "THERMAL_ADDON_INSTALLED" "$THERMAL_ADDON_INSTALLED"
         write_env_pair "THERMAL_ADDON_VERSION" "$THERMAL_ADDON_VERSION"
+        emit_integrated_thermal_status
         write_env_pair "LAST_UPDATED" "$(date)"
     } > "$ADDON_API_ENV"
 }
@@ -1618,6 +1688,7 @@ write_module_status_env() {
         write_env_pair "IRQ_TOUCH_SUMMARY" "$IRQ_SUMMARY_TOUCH"
         write_env_pair "THERMAL_ADDON_INSTALLED" "$THERMAL_ADDON_INSTALLED"
         write_env_pair "THERMAL_ADDON_VERSION" "$THERMAL_ADDON_VERSION"
+        emit_integrated_thermal_status
         write_env_pair "DASHBOARD_UPDATER_PID" "$updater_pid"
         write_env_pair "DASHBOARD_UPDATER_STATE" "$updater_state"
         write_env_pair "LOG_FILE" "$LOG_FILE"
