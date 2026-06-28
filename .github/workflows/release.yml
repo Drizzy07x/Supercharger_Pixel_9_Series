@@ -70,6 +70,18 @@ jobs:
           echo "asset_basename=${ASSET_BASENAME}" >> "$GITHUB_OUTPUT"
           echo "release_title=${RELEASE_TITLE}" >> "$GITHUB_OUTPUT"
 
+      - name: Run release preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -x
+
+          bash -n customize.sh service.sh uninstall.sh bin/supercharger_ctl.sh
+          node --check webroot/index.mjs
+          python3 -m json.tool update.json >/dev/null
+          find thermal_profiles -name '*.json' -print0 | xargs -0 -r -n1 python3 -m json.tool >/dev/null
+          python3 scripts/validate_release.py --profile main --source .
+
       - name: Create module ZIP
         shell: bash
         env:
@@ -85,6 +97,7 @@ jobs:
 
           rm -f "${ZIP_PATH}" "${SHA_PATH}"
 
+          chmod 0644 module.prop system.prop update.json
           chmod 0755 customize.sh service.sh uninstall.sh
           find bin -type d -exec chmod 0755 {} +
           find bin -type f -exec chmod 0755 {} +
@@ -93,28 +106,22 @@ jobs:
           find thermal_profiles -type d -exec chmod 0755 {} + 2>/dev/null || true
           find thermal_profiles -type f -exec chmod 0644 {} + 2>/dev/null || true
 
-          zip -r "${ZIP_PATH}" . \
-            -x ".git/*" \
-               ".git/**" \
-               ".github/*" \
-               ".github/**" \
-               "dist/*" \
-               "dist/**" \
-               ".gitignore" \
-               ".gitattributes" \
-               "README.md" \
-               "README.txt" \
-               "LICENSE" \
-               "changelog.md" \
-               "CHANGELOG.md" \
-               "action.log" \
-               "current_profile" \
-               "last_action_status.txt" \
-               "*.log" \
-               "*.tmp" \
-               "*.swp" \
-               "*.bak" \
-               "*.DS_Store"
+          cat > dist/package-manifest.txt <<'EOF'
+          module.prop
+          system.prop
+          customize.sh
+          service.sh
+          uninstall.sh
+          update.json
+          bin
+          webroot
+          thermal_profiles
+          EOF
+
+          mapfile -t ZIP_ITEMS < <(sed 's/^[[:space:]]*//;s/[[:space:]]*$//' dist/package-manifest.txt | sed '/^$/d')
+          zip -r "${ZIP_PATH}" "${ZIP_ITEMS[@]}"
+
+          python3 scripts/validate_release.py --profile main --skip-source --zip "${ZIP_PATH}"
 
           sha256sum "${ZIP_PATH}" > "${SHA_PATH}"
 

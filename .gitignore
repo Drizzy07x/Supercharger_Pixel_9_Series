@@ -1,0 +1,35 @@
+# Local release output
+dist/
+release-check/
+*.zip
+*.zip.sha256
+
+# Runtime state
+current_profile
+thermal_current_profile
+thermal_control.env
+gpu_policy_state.env
+module_status.env
+addon_api.env
+support_snapshot.txt
+debug.log
+debug.previous.log
+maintenance.log
+maintenance_task.log
+maintenance_task.env
+maintenance_task.pid
+app_optimization.log
+app_optimization.env
+app_optimization.pid
+dashboard_updater.pid
+*.pid
+*.lock/
+.*.lock/
+
+# Editor and OS noise
+__pycache__/
+*.pyc
+*.tmp
+*.bak
+*.swp
+.DS_Store

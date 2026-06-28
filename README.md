@@ -91,7 +91,7 @@ It reports:
 - battery temperature
 - kernel and build info
 - storage and network status
-- merged Thermal Control status
+- integrated Thermal Control status
 
 It also exposes:
 
@@ -122,7 +122,7 @@ Reboot after switching profiles before judging behavior.
 
 ---
 
-## Merged Thermal Control
+## Integrated Thermal Control
 
 Thermal Control profiles are bundled into the main Supercharger module, but the thermal overlay is **off by default**.
 
