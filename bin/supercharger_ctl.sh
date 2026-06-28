@@ -206,7 +206,7 @@ ensure_integrated_thermal_state() {
   integrated_thermal_available || return 0
   [ -r "$INTEGRATED_THERMAL_STATE" ] && return 0
   profile="$(thermal_profile_for "$(read_selected_profile)")"
-  write_integrated_thermal_state 0 "$profile" 0 "Thermal Control is off by default. Enable it manually from WebUI."
+  write_integrated_thermal_state 0 "$profile" 0 "Off by default for a safe first boot. Enable it after the phone boots normally."
 }
 
 remove_integrated_thermal_overlay() {
@@ -226,7 +226,7 @@ apply_integrated_thermal_profile() {
     return 1
   }
   if ! integrated_thermal_available; then
-    echo "Merged Thermal Control profiles are not available."
+    echo "Integrated Thermal Control profiles are not available."
     return 1
   fi
 
@@ -240,7 +240,7 @@ apply_integrated_thermal_profile() {
     fail_message="$1"
     echo "$fail_message"
     remove_integrated_thermal_overlay
-    write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled after a failed profile apply. Reboot required before trying again."
+    write_integrated_thermal_state 0 "$profile" 1 "Thermal Control was turned off after a failed profile apply. Restart before trying again."
     return 1
   }
 
@@ -269,7 +269,7 @@ apply_integrated_thermal_profile() {
     fi
   fi
 
-  write_integrated_thermal_state 1 "$profile" 1 "Thermal Control enabled. Reboot required to apply the selected thermal profile."
+  write_integrated_thermal_state 1 "$profile" 1 "Thermal Control enabled. Restart to apply the selected thermal profile."
   echo "Thermal Control: enabled"
   echo "Thermal profile: $(integrated_thermal_label_for "$profile")"
   echo "Restart required to apply the selected thermal profile."
@@ -278,7 +278,7 @@ apply_integrated_thermal_profile() {
 disable_integrated_thermal_control() {
   profile="$(read_integrated_thermal_profile)"
   remove_integrated_thermal_overlay
-  write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled. Reboot required to remove the thermal overlay."
+  write_integrated_thermal_state 0 "$profile" 1 "Thermal Control disabled. Restart to return to ROM/vendor thermal behavior."
   echo "Thermal Control: disabled"
   echo "Thermal overlay files removed from the module."
   echo "Restart required to return to ROM/vendor thermal behavior."
@@ -296,7 +296,7 @@ integrated_thermal_status() {
   reboot="$(env_value THERMAL_CONTROL_REBOOT_REQUIRED "$INTEGRATED_THERMAL_STATE")"
   [ -z "$reboot" ] && reboot=0
   message="$(env_value THERMAL_CONTROL_MESSAGE "$INTEGRATED_THERMAL_STATE")"
-  [ -z "$message" ] && message="Thermal Control is off by default. Enable it manually from WebUI."
+  [ -z "$message" ] && message="Off by default for a safe first boot. Enable it after the phone boots normally."
   write_env_pair "THERMAL_CONTROL_MERGED" "1"
   write_env_pair "THERMAL_CONTROL_AVAILABLE" "$available"
   write_env_pair "THERMAL_CONTROL_ENABLED" "$enabled"
@@ -442,7 +442,7 @@ sync_thermal_addon_profile() {
       apply_integrated_thermal_profile "$target" "supercharger"
       return $?
     fi
-    echo "Thermal Control: merged but off. Enable it manually in WebUI to avoid bootloops."
+    echo "Thermal Control: integrated but off. Enable it after confirming the phone boots normally."
     return 0
   fi
 
@@ -497,7 +497,7 @@ set_supercharger_profile() {
     log_maintenance "profile selected with thermal sync warning: $target thermal_target=$thermal rc=$sync_status"
   fi
   log_maintenance "profile selected: $target thermal_target=$thermal"
-  echo "Profile state updated. Reboot recommended before evaluating behavior."
+  echo "Profile saved. Restart before judging performance."
 }
 
 profile_status() {
@@ -531,7 +531,7 @@ detect_thermal_addon() {
   if integrated_thermal_available; then
     enabled="off"
     integrated_thermal_enabled && enabled="on"
-    echo "1|merged ($enabled)"
+    echo "1|integrated ($enabled)"
     return 0
   fi
 
@@ -1006,7 +1006,7 @@ verify_active_tuning() {
   echo "- policy: $irq_policy"
   grep -E 'Storage/UFS IRQ Summary|Wi-Fi/Network IRQ Summary|Touch/Input IRQ Summary' "$DEBUG_LOG" 2>/dev/null | tail -n 6 || true
   echo ""
-  echo "Note: this verification does not change tuning. Reboot after switching profiles before judging behavior."
+  echo "Note: this verification does not change tuning. Restart after switching profiles before judging behavior."
   log_maintenance "active tuning verification completed"
 }
 
@@ -1739,7 +1739,7 @@ thermal_set_profile_command() {
   profile="$1"
   if ! integrated_thermal_enabled; then
     echo "Thermal Control is off."
-    echo "Enable it manually before changing thermal profiles."
+    echo "Enable it before changing thermal profiles."
     return 1
   fi
   apply_integrated_thermal_profile "$profile" "thermal_control"

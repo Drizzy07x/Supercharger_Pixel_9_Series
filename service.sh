@@ -18,7 +18,7 @@ INTEGRATED_THERMAL_ACTIVE_DIR="$MODDIR/system/vendor/etc"
 PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
 
-PROFILE_VERSION="v2.6.1"
+PROFILE_VERSION="v2.6.2"
 PROFILE_MODE="Unknown"
 PROFILE_FILE="$MODDIR/current_profile"
 SELECTED_PROFILE="active_smooth"
@@ -1515,7 +1515,7 @@ emit_integrated_thermal_status() {
     reboot="$(env_value THERMAL_CONTROL_REBOOT_REQUIRED "$INTEGRATED_THERMAL_STATE")"
     [ -z "$reboot" ] && reboot=0
     message="$(env_value THERMAL_CONTROL_MESSAGE "$INTEGRATED_THERMAL_STATE")"
-    [ -z "$message" ] && message="Thermal Control is off by default. Enable it manually from WebUI."
+    [ -z "$message" ] && message="Off by default for a safe first boot. Enable it after the phone boots normally."
 
     write_env_pair "THERMAL_CONTROL_MERGED" "1"
     write_env_pair "THERMAL_CONTROL_AVAILABLE" "$available"
@@ -1533,9 +1533,9 @@ detect_thermal_addon() {
     if [ -d "$INTEGRATED_THERMAL_PROFILES" ]; then
         THERMAL_ADDON_INSTALLED=1
         if [ "$(env_value THERMAL_CONTROL_ENABLED "$INTEGRATED_THERMAL_STATE")" = "1" ]; then
-            THERMAL_ADDON_VERSION="merged (on)"
+            THERMAL_ADDON_VERSION="integrated (on)"
         else
-            THERMAL_ADDON_VERSION="merged (off)"
+            THERMAL_ADDON_VERSION="integrated (off)"
         fi
         return 0
     fi

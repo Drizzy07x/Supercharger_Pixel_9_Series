@@ -1,4 +1,4 @@
-# Pixel 9 Pro Series Supercharger v2.6.1 STABLE
+# Pixel 9 Pro Series Supercharger v2.6.2 STABLE
 
 <p align="center">
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
@@ -8,7 +8,7 @@
 <img src="https://img.shields.io/badge/SoC-Tensor%20G4-F29900?style=for-the-badge" alt="SoC">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases">
-<img src="https://img.shields.io/badge/Version-v2.6.1%20STABLE-34A853?style=for-the-badge" alt="Version">
+<img src="https://img.shields.io/badge/Version-v2.6.2%20STABLE-34A853?style=for-the-badge" alt="Version">
 </a>
 <a href="https://github.com/Drizzy07x/Supercharger_Pixel_9_Series">
 <img src="https://img.shields.io/badge/Android-16%20%26%2017-3DDC84?style=for-the-badge&logo=android&logoColor=white" alt="Android">
@@ -34,7 +34,7 @@
 
 The goal is simple: improve daily smoothness and responsiveness without turning the device into a reckless benchmark profile.
 
-`v2.6.1 STABLE` includes the Supercharger dashboard plus merged Thermal Control profile management.
+`v2.6.2 STABLE` includes the Supercharger dashboard plus integrated Thermal Control profile management.
 
 ---
 

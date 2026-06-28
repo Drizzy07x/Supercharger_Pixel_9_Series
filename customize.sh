@@ -7,7 +7,7 @@ RELEASE="$(getprop ro.build.version.release)"
 
 ui_print "*********************************************************"
 ui_print "  Pixel 9 Series Supercharger"
-ui_print "  Build: v2.6.1"
+ui_print "  Build: v2.6.2"
 ui_print "*********************************************************"
 
 case "$DEVICE" in
@@ -46,13 +46,13 @@ THERMAL_CONTROL_PROFILE="balanced"
 THERMAL_CONTROL_LABEL="Balanced"
 THERMAL_CONTROL_OVERLAY_ACTIVE="0"
 THERMAL_CONTROL_REBOOT_REQUIRED="0"
-THERMAL_CONTROL_MESSAGE="Thermal Control is off by default. Enable it manually from WebUI."
+THERMAL_CONTROL_MESSAGE="Off by default for a safe first boot. Enable it after the phone boots normally."
 EOF_THERMAL_DEFAULT
 [ -f "$MODPATH/thermal_current_profile" ] || echo "balanced" > "$MODPATH/thermal_current_profile"
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"
-  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.1"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
+  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.2"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$MODPATH/service.sh" 2>/dev/null
   else
     rm -f "$tmp" 2>/dev/null

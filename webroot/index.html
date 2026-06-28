@@ -14,12 +14,12 @@
 <div class="wrap">
   <section class="hero">
     <h1>Pixel 9 Series Supercharger</h1>
-    <p class="sub">Performance dashboard, maintenance tools, app optimization, and profile control for the Pixel 9 series.</p>
+    <p class="sub">Monitor health, switch profiles, manage thermal mode, and run maintenance for your Pixel 9.</p>
     <div class="grid">
       <div class="card"><div class="label">Status</div><div class="value" id="statusValue">Loading</div><div class="mini" id="statusSub">Reading module state…</div></div>
       <div class="card"><div class="label">Profile</div><div class="value" id="profileValue">—</div><div class="mini" id="versionValue">—</div></div>
       <div class="card"><div class="label">Device</div><div class="value" id="deviceValue">—</div><div class="mini" id="deviceSub">—</div></div>
-      <div class="card"><div class="label">Thermal Control</div><div class="value" id="addonValue">—</div><div class="mini" id="addonSub">—</div></div>
+      <div class="card"><div class="label">Thermal Mode</div><div class="value" id="addonValue">—</div><div class="mini" id="addonSub">—</div></div>
     </div>
   </section>
   <nav class="tabs">
@@ -46,41 +46,41 @@
     <div class="panel">
       <div class="label">Profile Control</div>
       <div class="profileGrid">
-        <div class="profileCard" id="profileActiveSmooth"><div><span class="pill good">Stable</span></div><div class="profileTitle">Active Smooth</div><div class="profileText">Daily profile focused on smoothness, safe boot behavior, and consistent responsiveness.</div><button class="safe" id="setActiveSmoothBtn">Use Active Smooth</button></div>
-        <div class="profileCard" id="profileGaming"><div><span class="pill warn">Experimental</span></div><div class="profileTitle">Performance / Gaming</div><div class="profileText">Experimental profile for gaming sessions. Applies performance VM targets, top-app uclamp boosts, best-effort GPU governor tuning, storage read-ahead floor, BBR when available, stronger IRQ affinity, and Thermal Control gaming sync.</div><button class="warnBtn" id="setGamingBtn">Use Performance / Gaming</button></div>
+        <div class="profileCard" id="profileActiveSmooth"><div><span class="pill good">Stable</span></div><div class="profileTitle">Active Smooth</div><div class="profileText">Balanced daily tuning for smooth scrolling, clean boot behavior, and steady responsiveness.</div><button class="safe" id="setActiveSmoothBtn">Use Active Smooth</button></div>
+        <div class="profileCard" id="profileGaming"><div><span class="pill warn">Experimental</span></div><div class="profileTitle">Performance / Gaming</div><div class="profileText">Sharper response for gaming sessions. Applies stronger CPU, GPU, storage, network, IRQ, and thermal profile tuning when supported.</div><button class="warnBtn" id="setGamingBtn">Use Performance / Gaming</button></div>
       </div>
-      <div class="notice" id="profileNote">Profile changes are saved systemlessly. Reboot before judging behavior. Merged Thermal Control syncs only after you enable it manually.</div>
-      <pre id="profileBox">No profile action yet.</pre>
+      <div class="notice" id="profileNote">Changes are systemless. Restart before judging performance. Thermal sync stays off until you enable Thermal Control.</div>
+      <pre id="profileBox">No profile changes yet.</pre>
     </div>
     <div class="panel">
-      <div class="label">Merged Thermal Control</div>
+      <div class="label">Integrated Thermal Control</div>
       <div class="split">
-        <div class="kv"><div class="k">Thermal Engine</div><div class="v" id="thermalStateValue">Off</div></div>
+        <div class="kv"><div class="k">Thermal Control</div><div class="v" id="thermalStateValue">Off</div></div>
         <div class="kv"><div class="k">Thermal Profile</div><div class="v" id="thermalProfileValue">Balanced</div></div>
         <div class="kv"><div class="k">Restart</div><div class="v" id="thermalRebootValue">Not required</div></div>
       </div>
-      <div class="notice" id="thermalMessage">Thermal Control is off by default. Enable it manually after confirming the device boots normally.</div>
+      <div class="notice" id="thermalMessage">Off by default for a safe first boot. Enable it after the phone boots normally.</div>
       <div class="actionGrid" style="margin-top:12px">
         <button class="safe" id="thermalEnableBtn">Enable Thermal Control</button>
         <button class="warnBtn" id="thermalDisableBtn">Disable Thermal Control</button>
       </div>
       <div class="actionGrid" style="margin-top:12px">
-        <button class="action" id="thermalBalancedBtn">Thermal Balanced</button>
-        <button class="action" id="thermalGamingBtn">Thermal Gaming</button>
+        <button class="action" id="thermalBalancedBtn">Balanced Thermal</button>
+        <button class="action" id="thermalGamingBtn">Gaming Thermal</button>
       </div>
       <div class="actionGrid" style="margin-top:12px">
-        <button class="action" id="thermalChargeCoolBtn">Thermal Charge Cool</button>
+        <button class="action" id="thermalChargeCoolBtn">Charge Cool Thermal</button>
       </div>
-      <pre id="thermalBox">Thermal Control is disabled until you enable it manually.</pre>
+      <pre id="thermalBox">Thermal Control is off. Enable it when you are ready to apply a thermal profile.</pre>
     </div>
   </section>
   <section id="maintenance" class="section">
-    <div class="panel"><div class="label">One-Tap Maintenance</div><button class="safe" id="maintenanceAllBtn">Run maintenance</button><div class="notice">Repairs dashboard/API state, clears stale task state, refreshes status, verifies active tuning, generates a support snapshot, and checks running processes.</div><pre id="maintenanceBox">No maintenance task running.</pre></div>
-    <div class="panel"><div class="label">App Optimization</div><div class="actionGrid"><button class="action" id="optimizeAllBtn">Optimize listed apps</button><button class="action" id="optimizeSystemBtn">Optimize safe system apps</button><button class="safe" id="dexoptJobBtn">Run system dexopt job</button></div><div class="formGrid"><input id="appSearch" type="search" placeholder="Search package name…" autocomplete="off" /><button class="safe" id="refreshAppsBtn">Refresh app list</button></div><div class="formGrid"><select id="appSelect"><option value="">Loading installed apps…</option></select><button class="action" id="optimizeSelectedBtn">Optimize selected app</button></div><div class="notice">Uses Android ART package compile with speed-profile and verify fallback. The list includes user apps plus selected safe system apps such as Pixel Launcher when installed. Protected Android services are excluded.</div><pre id="optimizationBox">Refresh the app list, then choose an optimization action.</pre></div>
+    <div class="panel"><div class="label">One-Tap Maintenance</div><button class="safe" id="maintenanceAllBtn">Run maintenance</button><div class="notice">Refreshes status, repairs dashboard files, verifies current tuning, creates a support snapshot, and checks duplicate processes.</div><pre id="maintenanceBox">Ready. No maintenance task is running.</pre></div>
+    <div class="panel"><div class="label">App Optimization</div><div class="actionGrid"><button class="action" id="optimizeAllBtn">Optimize app list</button><button class="action" id="optimizeSystemBtn">Optimize safe system apps</button><button class="safe" id="dexoptJobBtn">Run system dexopt</button></div><div class="formGrid"><input id="appSearch" type="search" placeholder="Search apps by package name…" autocomplete="off" /><button class="safe" id="refreshAppsBtn">Refresh app list</button></div><div class="formGrid"><select id="appSelect"><option value="">Loading app list…</option></select><button class="action" id="optimizeSelectedBtn">Optimize selected app</button></div><div class="notice">Uses Android ART compile with speed-profile and verify fallback. User apps and selected safe system apps are included; protected Android services are skipped.</div><pre id="optimizationBox">Refresh the app list or choose an optimization task.</pre></div>
   </section>
   <section id="logs" class="section"><div class="panel"><div class="label">Logs</div><div class="logTabs"><button class="logBtn active" data-log="debug.log">debug.log</button><button class="logBtn" data-log="debug.previous.log">debug.previous.log</button><button class="logBtn" data-log="maintenance.log">maintenance.log</button><button class="action" id="copyLogBtn">Copy</button></div><pre id="logBox">Loading…</pre></div></section>
-  <section id="support" class="section"><div class="panel"><div class="label">Support Snapshot</div><div class="row"><button class="safe" id="loadSnapshotBtn">Load snapshot</button><button class="action" id="copySnapshotBtn">Copy snapshot</button></div><pre id="snapshotBox">Generate or load a support snapshot.</pre></div></section>
-  <div class="footer">Supercharger uses best-effort writes and safe fallback behavior. If the kernel rejects a node, the module leaves it unchanged.</div>
+  <section id="support" class="section"><div class="panel"><div class="label">Support Snapshot</div><div class="row"><button class="safe" id="loadSnapshotBtn">Load snapshot</button><button class="action" id="copySnapshotBtn">Copy snapshot</button></div><pre id="snapshotBox">Load the latest support snapshot.</pre></div></section>
+  <div class="footer">Best-effort tuning: if the kernel rejects a write, Supercharger leaves that setting unchanged.</div>
 </div>
 <script type="module" src="./index.mjs"></script>
 </body>

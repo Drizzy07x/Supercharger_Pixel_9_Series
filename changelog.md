@@ -1,5 +1,14 @@
 # Pixel 9 Series Supercharger Changelog
 
+## v2.6.2
+
+### WebUI Polish
+
+- Refined WebUI copy for clearer status, profile, thermal, maintenance, and app optimization flows.
+- Renamed visible Thermal Control language from "merged" to "integrated" for a more finished presentation.
+- Improved empty states, progress messages, and error messages across WebUI actions.
+- Kept the existing layout and controls intact.
+
 ## v2.6.1
 
 ### WebUI Hotfix

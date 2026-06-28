@@ -49,21 +49,53 @@ function setText(id, value){ const el = $(id); if(el) el.textContent = value || 
 function setPill(id, text, kind){ const el = $(id); if(!el) return; el.textContent = text || '—'; el.className = `pill ${kind || ''}`.trim(); }
 function isRunning(value){ return String(value || '').toLowerCase() === 'running'; }
 function setActionsBusy(busy){ commandBusy = busy; $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = busy; }); updateProfileButtons(); updateThermalButtons(); }
-function showHeaderTask(label){ setText('#statusValue', 'Working'); setText('#statusSub', label || 'Background task running'); }
+function showHeaderTask(label){ setText('#statusValue', 'Running'); setText('#statusSub', label || 'Background task in progress'); }
+
+function titleCase(value){
+  return String(value || '').replace(/[_-]+/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+}
+
+function stateLabel(value){
+  const state = String(value || '').trim().toLowerCase();
+  if(!state || state === 'idle') return 'Idle';
+  if(state === 'running') return 'Running';
+  if(state === 'done') return 'Complete';
+  if(state === 'failed') return 'Needs review';
+  if(state === 'stale') return 'Stale';
+  if(state === 'pass') return 'Pass';
+  if(state === 'warn') return 'Warning';
+  return titleCase(state);
+}
+
+function appTypeLabel(type){
+  const value = String(type || '').trim().toLowerCase();
+  if(value === 'user') return 'User';
+  if(value === 'system') return 'System';
+  return 'App';
+}
+
+function thermalLabel(profile){
+  switch(String(profile || '').trim()){
+    case 'balanced': return 'Balanced Thermal';
+    case 'gaming': return 'Gaming Thermal';
+    case 'charge_cool': return 'Charge Cool Thermal';
+    default: return titleCase(profile || 'Thermal profile');
+  }
+}
 
 function addonLabel(s){
-  if(String(s.THERMAL_CONTROL_MERGED || '0') === '1') return 'Merged';
-  return String(s.THERMAL_ADDON_INSTALLED || '0') === '1' ? 'Installed' : 'Not installed';
+  if(String(s.THERMAL_CONTROL_MERGED || '0') === '1') return 'Integrated';
+  return String(s.THERMAL_ADDON_INSTALLED || '0') === '1' ? 'External add-on' : 'Unavailable';
 }
 function addonSub(s){
   if(String(s.THERMAL_CONTROL_MERGED || '0') === '1'){
-    const mode = thermalEnabled() ? 'on' : 'off';
+    const mode = thermalEnabled() ? 'On' : 'Off';
     const profile = s.THERMAL_CONTROL_LABEL || thermalProfile();
     return `${mode} · ${profile}`;
   }
   const installed = String(s.THERMAL_ADDON_INSTALLED || '0') === '1';
-  const target = s.THERMAL_PROFILE_REQUEST ? ` · target: ${s.THERMAL_PROFILE_REQUEST}` : '';
-  return installed ? `${s.THERMAL_ADDON_VERSION || 'installed'}${target}` : `not available${target}`;
+  const target = s.THERMAL_PROFILE_REQUEST ? ` · Target: ${titleCase(s.THERMAL_PROFILE_REQUEST)}` : '';
+  return installed ? `${s.THERMAL_ADDON_VERSION || 'Installed'}${target}` : `Not available${target}`;
 }
 
 async function resolveThermalAddon(){
@@ -184,11 +216,11 @@ function renderStatus(){
   const taskState = String(status.TASK_STATE || 'idle').toLowerCase();
 
   if(taskState === 'running'){
-    setText('#statusValue', 'Working');
-    setText('#statusSub', status.TASK_LABEL || 'Background task running');
+    setText('#statusValue', 'Running');
+    setText('#statusSub', status.TASK_LABEL || 'Background task in progress');
   } else {
-    setText('#statusValue', health === 'pass' ? 'Idle' : 'Check log');
-    setText('#statusSub', health === 'pass' ? 'No background task running' : 'Audit warning detected');
+    setText('#statusValue', health === 'pass' ? 'Ready' : 'Review logs');
+    setText('#statusSub', health === 'pass' ? 'No background tasks are running' : 'Latest audit needs attention');
   }
 
   setText('#profileValue', status.PROFILE_LABEL || status.PROFILE_MODE || '—');
@@ -200,16 +232,16 @@ function renderStatus(){
   setText('#thermalStateValue', thermalEnabled() ? 'On' : 'Off');
   setText('#thermalProfileValue', status.THERMAL_CONTROL_LABEL || thermalProfile());
   setText('#thermalRebootValue', String(status.THERMAL_CONTROL_REBOOT_REQUIRED || '0') === '1' ? 'Required' : 'Not required');
-  setText('#thermalMessage', status.THERMAL_CONTROL_MESSAGE || 'Thermal Control is off by default. Enable it manually from WebUI.');
-  setPill('#healthPill', `Health: ${status.HEALTH || 'unknown'}`, healthKind);
-  setPill('#rootPill', `Root: ${status.ROOT_ENV || 'unknown'}`, '');
-  setPill('#tempPill', `Temp: ${status.BATTERY_TEMP || 'unknown'}`, '');
-  setPill('#updaterPill', `Updater: ${updater}`, updaterKind);
+  setText('#thermalMessage', status.THERMAL_CONTROL_MESSAGE || 'Off by default for a safe first boot. Enable it after the phone boots normally.');
+  setPill('#healthPill', `Health: ${stateLabel(status.HEALTH || 'unknown')}`, healthKind);
+  setPill('#rootPill', `Root: ${status.ROOT_ENV || 'Unknown'}`, '');
+  setPill('#tempPill', `Temp: ${status.BATTERY_TEMP || 'Unknown'}`, '');
+  setPill('#updaterPill', `Updater: ${stateLabel(updater)}`, updaterKind);
   setText('#kernelValue', status.KERNEL_RELEASE || '—');
   setText('#buildValue', status.BUILD_ID || '—');
   setText('#storageValue', cleanStorageValue(status.BLOCK_AUDITED_LIST));
   setText('#networkValue', status.NETWORK_CAPABILITY_SUMMARY || '—');
-  setText('#swapValue', String(status.SWAP_ACTIVE || '0') === '1' ? `Active / page-cluster ${status.PAGE_CLUSTER_STATUS || '—'}` : 'Not active');
+  setText('#swapValue', String(status.SWAP_ACTIVE || '0') === '1' ? `Active · page-cluster ${status.PAGE_CLUSTER_STATUS || '—'}` : 'Inactive');
   setText('#updatedValue', status.LAST_UPDATED || '—');
   renderProfileCards();
   updateThermalButtons();
@@ -234,7 +266,7 @@ function reconcileTasks(sync){
     status.TASK_LABEL = sync.app.LABEL || 'App optimization';
   } else {
     status.TASK_STATE = 'idle';
-    status.TASK_LABEL = 'No background task running';
+    status.TASK_LABEL = 'Ready';
   }
 
   status.MAINTENANCE_TASK_STATE = sync?.maint?.STATE || status.MAINTENANCE_TASK_STATE || 'idle';
@@ -254,22 +286,22 @@ async function refreshStatus(){
 async function loadLog(name=currentLog){
   currentLog = name;
   $$('.logBtn').forEach(b => b.classList.toggle('active', b.dataset.log === name));
-  $('#logBox').textContent = 'Loading…';
+  $('#logBox').textContent = 'Loading log…';
   try {
     const out = await sh(`cat '${MODDIR}/${name}' 2>/dev/null || echo 'No ${name} found.'`);
-    $('#logBox').textContent = out.trim() || `No ${name} content.`;
+    $('#logBox').textContent = out.trim() || `${name} is empty.`;
   } catch(e){
-    $('#logBox').textContent = `Failed to read ${name}: ${e.message}`;
+    $('#logBox').textContent = `Could not read ${name}:\n${e.message}`;
   }
 }
 
 async function loadSnapshot(){
-  $('#snapshotBox').textContent = 'Loading…';
+  $('#snapshotBox').textContent = 'Loading snapshot…';
   try {
     const out = await sh(`cat '${MODDIR}/support_snapshot.txt' 2>/dev/null || echo 'No support snapshot found.'`);
-    $('#snapshotBox').textContent = out.trim() || 'No support snapshot content.';
+    $('#snapshotBox').textContent = out.trim() || 'No support snapshot is available yet.';
   } catch(e){
-    $('#snapshotBox').textContent = `Failed to load support snapshot: ${e.message}`;
+    $('#snapshotBox').textContent = `Could not load support snapshot:\n${e.message}`;
   }
 }
 
@@ -328,7 +360,7 @@ function renderAppList(filter=''){
   if(!filtered.length){
     const opt = document.createElement('option');
     opt.value = '';
-    opt.textContent = appEntries.length ? 'No match found' : 'No optimizable apps reported';
+    opt.textContent = appEntries.length ? 'No matching apps' : 'No apps available';
     select.appendChild(opt);
     return;
   }
@@ -336,7 +368,7 @@ function renderAppList(filter=''){
   for(const entry of filtered){
     const opt = document.createElement('option');
     opt.value = entry.pkg;
-    opt.textContent = `[${entry.type}] ${entry.pkg}`;
+    opt.textContent = `${appTypeLabel(entry.type)} · ${entry.pkg}`;
     select.appendChild(opt);
   }
 }
@@ -345,7 +377,7 @@ async function loadAppList(){
   const select = $('#appSelect');
   if(!select) return;
 
-  select.innerHTML = '<option value="">Loading optimizable apps…</option>';
+  select.innerHTML = '<option value="">Loading app list…</option>';
   try {
     const out = await sh(`sh '${CTL}' list-apps`);
     const seen = new Set();
@@ -359,9 +391,9 @@ async function loadAppList(){
     renderAppList($('#appSearch')?.value || '');
     const userCount = appEntries.filter(x => x.type === 'user').length;
     const systemCount = appEntries.filter(x => x.type === 'system').length;
-    $('#optimizationBox').textContent = appEntries.length ? `App list ready. User apps: ${userCount}. Safe system apps: ${systemCount}.` : 'No optimizable apps reported by Android package manager.';
+    $('#optimizationBox').textContent = appEntries.length ? `App list ready.\nUser apps: ${userCount}\nSafe system apps: ${systemCount}` : 'Android did not report any apps for optimization.';
   } catch(e){
-    $('#optimizationBox').textContent = `Failed to refresh app list:\n${e.message}`;
+    $('#optimizationBox').textContent = `Could not refresh app list:\n${e.message}`;
   }
 }
 
@@ -377,11 +409,11 @@ async function updateOptimizationProgress(label){
   const progress = await readOptimizationProgress();
   const state = String(progress.state.STATE || 'idle').toLowerCase();
   const job = progress.state.LABEL || label || 'App optimization';
-  $('#optimizationBox').textContent = `${job}\nState: ${state}\n\n${(progress.log || '').trim() || 'Waiting for optimization output…'}`;
+  $('#optimizationBox').textContent = `${job}\nStatus: ${stateLabel(state)}\n\n${(progress.log || '').trim() || 'Waiting for live output…'}`;
   if(isRunning(state)){ showHeaderTask(job); return true; }
   status.APP_OPT_TASK_STATE = state || 'idle';
   status.TASK_STATE = 'idle';
-  status.TASK_LABEL = 'No background task running';
+  status.TASK_LABEL = 'Ready';
   setActionsBusy(false);
   await refreshStatus();
   return false;
@@ -393,11 +425,11 @@ function startOptimizationPolling(label){
   setActionsBusy(true);
   updateOptimizationProgress(label).catch(e => {
     setActionsBusy(false);
-    $('#optimizationBox').textContent = `Failed to read optimization progress:\n${e.message}`;
+    $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`;
   });
   appPollTimer = setInterval(async () => {
     try { if(!await updateOptimizationProgress(label)) stopTimer('app'); }
-    catch(e){ stopTimer('app'); setActionsBusy(false); $('#optimizationBox').textContent = `Failed to read optimization progress:\n${e.message}`; }
+    catch(e){ stopTimer('app'); setActionsBusy(false); $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`; }
   }, TASK_POLL_MS);
 }
 
@@ -405,11 +437,11 @@ async function updateMaintenanceProgress(label){
   const progress = await readMaintenanceProgress();
   const state = String(progress.state.STATE || 'idle').toLowerCase();
   const job = progress.state.LABEL || label || 'One-tap maintenance';
-  $('#maintenanceBox').textContent = `${job}\nState: ${state}\n\n${(progress.log || '').trim() || 'Waiting for maintenance output…'}`;
+  $('#maintenanceBox').textContent = `${job}\nStatus: ${stateLabel(state)}\n\n${(progress.log || '').trim() || 'Waiting for live output…'}`;
   if(isRunning(state)){ showHeaderTask(job); return true; }
   status.MAINTENANCE_TASK_STATE = state || 'idle';
   status.TASK_STATE = 'idle';
-  status.TASK_LABEL = 'No background task running';
+  status.TASK_LABEL = 'Ready';
   setActionsBusy(false);
   await refreshStatus();
   return false;
@@ -421,11 +453,11 @@ function startMaintenancePolling(label){
   setActionsBusy(true);
   updateMaintenanceProgress(label).catch(e => {
     setActionsBusy(false);
-    $('#maintenanceBox').textContent = `Failed to read maintenance progress:\n${e.message}`;
+    $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`;
   });
   maintPollTimer = setInterval(async () => {
     try { if(!await updateMaintenanceProgress(label)) stopTimer('maintenance'); }
-    catch(e){ stopTimer('maintenance'); setActionsBusy(false); $('#maintenanceBox').textContent = `Failed to read maintenance progress:\n${e.message}`; }
+    catch(e){ stopTimer('maintenance'); setActionsBusy(false); $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`; }
   }, TASK_POLL_MS);
 }
 
@@ -433,15 +465,15 @@ async function runOptimization(label, startCmd){
   if(commandBusy) return;
   setActionsBusy(true);
   showHeaderTask(label);
-  $('#optimizationBox').textContent = 'Starting…';
+  $('#optimizationBox').textContent = 'Starting task…';
   try {
     const out = await sh(startCmd);
-    $('#optimizationBox').textContent = out.trim() || 'Started.';
+    $('#optimizationBox').textContent = out.trim() || 'Started. Watching progress…';
     startOptimizationPolling(label);
   } catch(e){
     setActionsBusy(false);
     await refreshStatus().catch(() => {});
-    $('#optimizationBox').textContent = `Failed to start optimization:\n${e.message}`;
+    $('#optimizationBox').textContent = `Could not start optimization:\n${e.message}`;
   }
 }
 
@@ -449,28 +481,28 @@ async function runMaintenance(label, startCmd){
   if(commandBusy) return;
   setActionsBusy(true);
   showHeaderTask(label);
-  $('#maintenanceBox').textContent = 'Starting…';
+  $('#maintenanceBox').textContent = 'Starting maintenance…';
   try {
     const out = await sh(startCmd);
-    $('#maintenanceBox').textContent = out.trim() || 'Started.';
+    $('#maintenanceBox').textContent = out.trim() || 'Started. Watching progress…';
     startMaintenancePolling(label);
   } catch(e){
     setActionsBusy(false);
     await refreshStatus().catch(() => {});
-    $('#maintenanceBox').textContent = `Failed to start maintenance:\n${e.message}`;
+    $('#maintenanceBox').textContent = `Could not start maintenance:\n${e.message}`;
   }
 }
 
 async function setProfile(profile){
   if(commandBusy) return;
   setActionsBusy(true);
-  $('#profileBox').textContent = 'Applying profile selection…';
+  $('#profileBox').textContent = 'Saving profile selection…';
   try {
     const out = await sh(`sh '${CTL}' set-profile ${shellQuote(profile)}`);
-    $('#profileBox').textContent = out.trim() || 'Profile updated.';
+    $('#profileBox').textContent = out.trim() || 'Profile saved. Restart before judging performance.';
     await refreshStatus();
   } catch(e){
-    $('#profileBox').textContent = `Failed to update profile:\n${e.message}`;
+    $('#profileBox').textContent = `Could not update profile:\n${e.message}`;
   } finally {
     setActionsBusy(false);
   }
@@ -482,10 +514,10 @@ async function runThermal(command, label){
   $('#thermalBox').textContent = `${label}…`;
   try {
     const out = await sh(`sh '${CTL}' ${command}`);
-    $('#thermalBox').textContent = out.trim() || 'Thermal command completed.';
+    $('#thermalBox').textContent = out.trim() || 'Thermal setting saved. Restart to apply it fully.';
     await refreshStatus();
   } catch(e){
-    $('#thermalBox').textContent = `Thermal command failed:\n${e.message}`;
+    $('#thermalBox').textContent = `Could not update Thermal Control:\n${e.message}`;
   } finally {
     setActionsBusy(false);
   }
@@ -493,7 +525,7 @@ async function runThermal(command, label){
 
 function setThermalProfile(profile){
   const command = thermalEnabled() ? `thermal-set-profile ${shellQuote(profile)}` : `thermal-enable ${shellQuote(profile)}`;
-  runThermal(command, `Applying ${profile.replace('_', ' ')}`);
+  runThermal(command, `Applying ${thermalLabel(profile)}`);
 }
 
 function resumeActiveTaskPolling(){
@@ -515,18 +547,18 @@ $('#copyLogBtn')?.addEventListener('click', () => copyText($('#logBox').textCont
 $('#maintenanceAllBtn')?.addEventListener('click', () => runMaintenance('One-tap maintenance', `sh '${CTL}' maintenance-all-async`));
 $('#refreshAppsBtn')?.addEventListener('click', loadAppList);
 $('#appSearch')?.addEventListener('input', () => renderAppList($('#appSearch').value));
-$('#optimizeAllBtn')?.addEventListener('click', () => runOptimization('Optimizing listed apps', `sh '${CTL}' optimize-apps-async`));
+$('#optimizeAllBtn')?.addEventListener('click', () => runOptimization('Optimizing app list', `sh '${CTL}' optimize-apps-async`));
 $('#optimizeSystemBtn')?.addEventListener('click', () => runOptimization('Optimizing safe system apps', `sh '${CTL}' optimize-system-apps-async`));
-$('#dexoptJobBtn')?.addEventListener('click', () => runOptimization('Android system dexopt job', `sh '${CTL}' dexopt-job-async`));
+$('#dexoptJobBtn')?.addEventListener('click', () => runOptimization('System dexopt', `sh '${CTL}' dexopt-job-async`));
 $('#optimizeSelectedBtn')?.addEventListener('click', () => {
   const pkg = $('#appSelect').value;
-  if(!pkg){ $('#optimizationBox').textContent = 'Select an app first.'; return; }
+  if(!pkg){ $('#optimizationBox').textContent = 'Choose an app first.'; return; }
   runOptimization(`Optimizing ${pkg}`, `sh '${CTL}' optimize-app-async ${shellQuote(pkg)}`);
 });
 $('#setActiveSmoothBtn')?.addEventListener('click', () => setProfile('active_smooth'));
 $('#setGamingBtn')?.addEventListener('click', () => setProfile('performance_gaming'));
-$('#thermalEnableBtn')?.addEventListener('click', () => runThermal('thermal-enable', 'Enabling Thermal Control'));
-$('#thermalDisableBtn')?.addEventListener('click', () => runThermal('thermal-disable', 'Disabling Thermal Control'));
+$('#thermalEnableBtn')?.addEventListener('click', () => runThermal('thermal-enable', 'Turning Thermal Control on'));
+$('#thermalDisableBtn')?.addEventListener('click', () => runThermal('thermal-disable', 'Turning Thermal Control off'));
 $('#thermalBalancedBtn')?.addEventListener('click', () => setThermalProfile('balanced'));
 $('#thermalGamingBtn')?.addEventListener('click', () => setThermalProfile('gaming'));
 $('#thermalChargeCoolBtn')?.addEventListener('click', () => setThermalProfile('charge_cool'));
