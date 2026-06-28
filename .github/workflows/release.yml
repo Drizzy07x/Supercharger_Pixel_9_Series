@@ -85,6 +85,14 @@ jobs:
 
           rm -f "${ZIP_PATH}" "${SHA_PATH}"
 
+          chmod 0755 customize.sh service.sh uninstall.sh
+          find bin -type d -exec chmod 0755 {} +
+          find bin -type f -exec chmod 0755 {} +
+          find webroot -type d -exec chmod 0755 {} +
+          find webroot -type f -exec chmod 0644 {} +
+          find thermal_profiles -type d -exec chmod 0755 {} + 2>/dev/null || true
+          find thermal_profiles -type f -exec chmod 0644 {} + 2>/dev/null || true
+
           zip -r "${ZIP_PATH}" . \
             -x ".git/*" \
                ".git/**" \
