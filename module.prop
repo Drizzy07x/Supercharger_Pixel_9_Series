@@ -1,7 +1,7 @@
 id=p9pxl_supercharger
 name=Pixel 9 Series Supercharger
-version=v2.6.3
-versionCode=26003
+version=v2.6.4
+versionCode=26004
 author=Drizzy_07
-description=Status: v2.6.3 | Premium WebUI | Integrated Thermal | Thermal off by default
+description=Status: v2.6.4 | Integrated Thermal | Thermal off by default
 updateJson=https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/update.json

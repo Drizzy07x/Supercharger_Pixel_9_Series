@@ -1,5 +1,12 @@
 # Pixel 9 Series Supercharger Changelog
 
+## v2.6.4
+
+### Metadata cleanup
+
+- Cleaned up module metadata wording.
+- Kept the existing WebUI, integrated Thermal Control, release validation, and safety behavior unchanged.
+
 ## v2.6.3
 
 ### Consolidated Release Notes
