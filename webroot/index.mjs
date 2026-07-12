@@ -8,9 +8,19 @@ let status = {};
 let currentLog = 'debug.log';
 let appEntries = [];
 let commandBusy = false;
+let statusReady = false;
+let appSelectionAvailable = false;
 let appPollTimer = null;
 let maintPollTimer = null;
+let appPollUpdating = false;
+let maintPollUpdating = false;
 const TASK_POLL_MS = 1800;
+const STATUS_ACTION_IDS = [
+  '#maintenanceAllBtn', '#refreshAppsBtn', '#optimizeAllBtn', '#optimizeSystemBtn',
+  '#dexoptJobBtn', '#optimizeSelectedBtn', '#setActiveSmoothBtn', '#setGamingBtn',
+  '#thermalEnableBtn', '#thermalDisableBtn', '#thermalBalancedBtn',
+  '#thermalGamingBtn', '#thermalChargeCoolBtn'
+];
 
 try { fullScreen(false); enableEdgeToEdge(false); } catch (_) {}
 
@@ -48,7 +58,21 @@ function parseEnv(text){
 function setText(id, value){ const el = $(id); if(el) el.textContent = value || '—'; }
 function setPill(id, text, kind){ const el = $(id); if(!el) return; el.textContent = text || '—'; el.className = `pill ${kind || ''}`.trim(); }
 function isRunning(value){ return String(value || '').toLowerCase() === 'running'; }
-function setActionsBusy(busy){ commandBusy = busy; $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = busy; }); updateProfileButtons(); updateThermalButtons(); }
+function updateStatusActionButtons(){
+  STATUS_ACTION_IDS.forEach(id => { const btn = $(id); if(btn) btn.disabled = commandBusy || !statusReady; });
+}
+function updateOptimizeSelectedButton(){
+  const btn = $('#optimizeSelectedBtn');
+  if(btn) btn.disabled = commandBusy || !statusReady || !appSelectionAvailable;
+}
+function setActionsBusy(busy){
+  commandBusy = busy;
+  $$('button.action, button.safe, button.warnBtn').forEach(btn => { btn.disabled = busy; });
+  updateStatusActionButtons();
+  updateProfileButtons();
+  updateThermalButtons();
+  updateOptimizeSelectedButton();
+}
 function showHeaderTask(label){ setText('#statusValue', 'Running'); setText('#statusSub', label || 'Background task in progress'); }
 
 function titleCase(value){
@@ -183,8 +207,8 @@ function updateProfileButtons(){
   const selected = status.SELECTED_PROFILE || 'active_smooth';
   const a = $('#setActiveSmoothBtn');
   const g = $('#setGamingBtn');
-  if(a) a.disabled = commandBusy || selected === 'active_smooth';
-  if(g) g.disabled = commandBusy || selected === 'performance_gaming';
+  if(a) a.disabled = commandBusy || !statusReady || selected === 'active_smooth';
+  if(g) g.disabled = commandBusy || !statusReady || selected === 'performance_gaming';
 }
 
 function thermalEnabled(){ return String(status.THERMAL_CONTROL_ENABLED || '0') === '1'; }
@@ -201,11 +225,11 @@ function updateThermalButtons(){
   const gaming = $('#thermalGamingBtn');
   const charge = $('#thermalChargeCoolBtn');
 
-  if(enable) enable.disabled = commandBusy || !available || enabled;
-  if(disable) disable.disabled = commandBusy || !available || !enabled;
-  if(balanced) balanced.disabled = commandBusy || !available || (enabled && profile === 'balanced');
-  if(gaming) gaming.disabled = commandBusy || !available || (enabled && profile === 'gaming');
-  if(charge) charge.disabled = commandBusy || !available || (enabled && profile === 'charge_cool');
+  if(enable) enable.disabled = commandBusy || !statusReady || !available || enabled;
+  if(disable) disable.disabled = commandBusy || !statusReady || !available || !enabled;
+  if(balanced) balanced.disabled = commandBusy || !statusReady || !available || (enabled && profile === 'balanced');
+  if(gaming) gaming.disabled = commandBusy || !statusReady || !available || (enabled && profile === 'gaming');
+  if(charge) charge.disabled = commandBusy || !statusReady || !available || (enabled && profile === 'charge_cool');
 }
 
 function renderStatus(){
@@ -356,6 +380,8 @@ function renderAppList(filter=''){
   const q = String(filter || '').trim().toLowerCase();
   const filtered = q ? appEntries.filter(entry => `${entry.type} ${entry.pkg}`.toLowerCase().includes(q)) : appEntries;
   select.innerHTML = '';
+  appSelectionAvailable = filtered.length > 0;
+  updateOptimizeSelectedButton();
 
   if(!filtered.length){
     const opt = document.createElement('option');
@@ -373,11 +399,23 @@ function renderAppList(filter=''){
   }
 }
 
+function showAppSelectMessage(message){
+  const select = $('#appSelect');
+  if(!select) return;
+  select.innerHTML = '';
+  const opt = document.createElement('option');
+  opt.value = '';
+  opt.textContent = message;
+  select.appendChild(opt);
+  appSelectionAvailable = false;
+  updateOptimizeSelectedButton();
+}
+
 async function loadAppList(){
   const select = $('#appSelect');
   if(!select) return;
 
-  select.innerHTML = '<option value="">Loading app list…</option>';
+  showAppSelectMessage('Loading app list…');
   try {
     const out = await sh(`sh '${CTL}' list-apps`);
     const seen = new Set();
@@ -393,6 +431,8 @@ async function loadAppList(){
     const systemCount = appEntries.filter(x => x.type === 'system').length;
     $('#optimizationBox').textContent = appEntries.length ? `App list ready.\nUser apps: ${userCount}\nSafe system apps: ${systemCount}` : 'Android did not report any apps for optimization.';
   } catch(e){
+    appEntries = [];
+    showAppSelectMessage('App list unavailable');
     $('#optimizationBox').textContent = `Could not refresh app list:\n${e.message}`;
   }
 }
@@ -423,14 +463,15 @@ function startOptimizationPolling(label){
   stopTimer('app');
   showHeaderTask(label);
   setActionsBusy(true);
-  updateOptimizationProgress(label).catch(e => {
-    setActionsBusy(false);
-    $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`;
-  });
-  appPollTimer = setInterval(async () => {
+  const poll = async () => {
+    if(appPollUpdating) return;
+    appPollUpdating = true;
     try { if(!await updateOptimizationProgress(label)) stopTimer('app'); }
     catch(e){ stopTimer('app'); setActionsBusy(false); $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`; }
-  }, TASK_POLL_MS);
+    finally { appPollUpdating = false; }
+  };
+  appPollTimer = setInterval(poll, TASK_POLL_MS);
+  poll();
 }
 
 async function updateMaintenanceProgress(label){
@@ -451,14 +492,15 @@ function startMaintenancePolling(label){
   stopTimer('maintenance');
   showHeaderTask(label);
   setActionsBusy(true);
-  updateMaintenanceProgress(label).catch(e => {
-    setActionsBusy(false);
-    $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`;
-  });
-  maintPollTimer = setInterval(async () => {
+  const poll = async () => {
+    if(maintPollUpdating) return;
+    maintPollUpdating = true;
     try { if(!await updateMaintenanceProgress(label)) stopTimer('maintenance'); }
     catch(e){ stopTimer('maintenance'); setActionsBusy(false); $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`; }
-  }, TASK_POLL_MS);
+    finally { maintPollUpdating = false; }
+  };
+  maintPollTimer = setInterval(poll, TASK_POLL_MS);
+  poll();
 }
 
 async function runOptimization(label, startCmd){
@@ -565,6 +607,16 @@ $('#thermalChargeCoolBtn')?.addEventListener('click', () => setThermalProfile('c
 $('#loadSnapshotBtn')?.addEventListener('click', loadSnapshot);
 $('#copySnapshotBtn')?.addEventListener('click', () => copyText($('#snapshotBox').textContent || '', $('#copySnapshotBtn')));
 
+setActionsBusy(false);
 refreshStatus()
-  .then(() => { resumeActiveTaskPolling(); })
-  .catch(e => { setText('#statusValue', 'Unavailable'); setText('#statusSub', e.message || 'Could not read module status'); });
+  .then(() => {
+    statusReady = true;
+    setActionsBusy(false);
+    resumeActiveTaskPolling();
+  })
+  .catch(e => {
+    statusReady = false;
+    setActionsBusy(false);
+    setText('#statusValue', 'Unavailable');
+    setText('#statusSub', e.message || 'Could not read module status');
+  });
