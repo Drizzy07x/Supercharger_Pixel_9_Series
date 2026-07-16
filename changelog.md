@@ -1,5 +1,17 @@
 # Pixel 9 Series Supercharger Changelog
 
+## v2.6.5
+
+### WebUI Reliability and Release Consistency
+
+- Fixed background task polling so completed tasks do not leave unnecessary timers running.
+- Prevented overlapping WebUI progress requests during app optimization and maintenance.
+- Kept module-dependent controls disabled until status is available, including error states.
+- Corrected app-selection controls across loading, filtering, failure, and busy transitions.
+- Added regression coverage for the corrected WebUI state handling.
+- Synchronized the README, module metadata, installer, service profile, update feed, and release notes.
+- Added release preflight checks for WebUI regressions and cross-file version consistency.
+
 ## v2.6.4
 
 ### Consolidated Release Notes

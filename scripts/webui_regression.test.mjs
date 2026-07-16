@@ -104,7 +104,7 @@ let failStatus = false;
 let deferStatus = false;
 const pendingStatusCallbacks = [];
 const statusText = [
-  'HEALTH=pass', 'VERSION=v2.6.4', 'MODEL=Pixel 9 Pro', 'DEVICE=caiman',
+  'HEALTH=pass', 'VERSION=v2.6.5', 'MODEL=Pixel 9 Pro', 'DEVICE=caiman',
   'ANDROID_RELEASE=16', 'ANDROID_SDK=36', 'ROOT_ENV=KernelSU',
   'SELECTED_PROFILE=active_smooth', 'THERMAL_CONTROL_AVAILABLE=1',
   'THERMAL_CONTROL_MERGED=1', 'THERMAL_CONTROL_ENABLED=0',
