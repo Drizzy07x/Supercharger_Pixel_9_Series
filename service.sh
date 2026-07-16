@@ -18,7 +18,7 @@ INTEGRATED_THERMAL_ACTIVE_DIR="$MODDIR/system/vendor/etc"
 PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
 
-PROFILE_VERSION="v2.6.4"
+PROFILE_VERSION="v2.6.5"
 PROFILE_MODE="Unknown"
 PROFILE_FILE="$MODDIR/current_profile"
 SELECTED_PROFILE="active_smooth"

@@ -78,6 +78,7 @@ jobs:
 
           bash -n customize.sh service.sh uninstall.sh bin/supercharger_ctl.sh
           node --check webroot/index.mjs
+          node --test scripts/webui_regression.test.mjs
           python3 -m json.tool update.json >/dev/null
           find thermal_profiles -name '*.json' -print0 | xargs -0 -r -n1 python3 -m json.tool >/dev/null
           python3 scripts/validate_release.py --profile main --source .

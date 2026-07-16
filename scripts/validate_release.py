@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 import argparse
+import json
+import re
 import sys
 import zipfile
 from pathlib import Path
@@ -102,6 +104,74 @@ def norm(value):
     return str(value).replace("\\", "/").strip("/")
 
 
+def read_properties(path):
+    values = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if "=" not in line or line.lstrip().startswith("#"):
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
+def check_main_metadata(root):
+    errors = []
+    module = read_properties(root / "module.prop")
+    version = module.get("version", "")
+    version_code = module.get("versionCode", "")
+
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", version)
+    if not match:
+        errors.append(f"invalid module version: {version or '<missing>'}")
+    else:
+        major, minor, patch = map(int, match.groups())
+        expected_code = major * 10000 + minor * 1000 + patch
+        if version_code != str(expected_code):
+            errors.append(
+                f"module versionCode {version_code or '<missing>'} does not match "
+                f"{version} (expected {expected_code})"
+            )
+
+    try:
+        update = json.loads((root / "update.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        errors.append(f"invalid update.json: {exc}")
+        update = {}
+
+    if update.get("version") != version:
+        errors.append("update.json version does not match module.prop")
+    if str(update.get("versionCode", "")) != version_code:
+        errors.append("update.json versionCode does not match module.prop")
+    for field in ("zipUrl", "changelog"):
+        if version and version not in str(update.get(field, "")):
+            errors.append(f"update.json {field} does not reference {version}")
+
+    metadata_files = {
+        "customize.sh": [f"Build: {version}", f'PROFILE_VERSION="{version}"'],
+        "service.sh": [f'PROFILE_VERSION="{version}"'],
+    }
+    for filename, markers in metadata_files.items():
+        text = (root / filename).read_text(encoding="utf-8")
+        for marker in markers:
+            if marker not in text:
+                errors.append(f"{filename} is missing version marker: {marker}")
+
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    readme_versions = set(re.findall(r"v\d+\.\d+\.\d+", readme))
+    if readme_versions != {version}:
+        errors.append(
+            "README version markers do not match module.prop: "
+            + (", ".join(sorted(readme_versions)) or "none found")
+        )
+
+    changelog = (root / "changelog.md").read_text(encoding="utf-8")
+    first_heading = re.search(r"^##\s+(v\S+)", changelog, re.MULTILINE)
+    if not first_heading or first_heading.group(1) != version:
+        errors.append(f"changelog latest section does not match {version}")
+
+    return errors
+
+
 def check_source(root, profile):
     errors = []
     for required in REQUIRED[profile]:
@@ -119,6 +189,8 @@ def check_source(root, profile):
             errors.append(f"runtime state file must not be tracked: {rel}")
         if rel.startswith("dist/") or rel.startswith("release-check/"):
             errors.append(f"local release output must stay outside source: {rel}")
+    if profile == "main" and not errors:
+        errors.extend(check_main_metadata(root))
     return errors
 
 
