@@ -250,7 +250,7 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the design
 
 ## Project Info
 
-- **Current release:** v2.6.6 (Stable channel)
+- **Current release:** v2.6.7 (Stable channel)
 - **Module ID:** `p9pxl_supercharger`
 - **Developed by:** [Drizzy07x](https://github.com/Drizzy07x)
 - **Changelog:** [changelog.md](changelog.md)
