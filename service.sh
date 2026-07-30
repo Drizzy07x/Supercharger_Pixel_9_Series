@@ -22,7 +22,7 @@ APP_LOCKDIR="$MODDIR/.app_optimization.lock"
 MAINT_PIDFILE="$MODDIR/maintenance_task.pid"
 APP_OPT_PIDFILE="$MODDIR/app_optimization.pid"
 
-PROFILE_VERSION="v2.6.5"
+PROFILE_VERSION="v2.6.6"
 PROFILE_MODE="Unknown"
 PROFILE_FILE="$MODDIR/current_profile"
 PERSIST_STATE_DIR="/data/adb/supercharger_state"

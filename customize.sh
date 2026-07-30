@@ -7,7 +7,7 @@ RELEASE="$(getprop ro.build.version.release)"
 
 ui_print "*********************************************************"
 ui_print "  Pixel 9 Series Supercharger"
-ui_print "  Build: v2.6.5"
+ui_print "  Build: v2.6.6"
 ui_print "*********************************************************"
 
 case "$DEVICE" in
@@ -68,7 +68,7 @@ restore_persistent_state thermal_current_profile "$MODPATH/thermal_current_profi
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"
-  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.5"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
+  if sed 's/^PROFILE_VERSION=.*/PROFILE_VERSION="v2.6.6"/' "$MODPATH/service.sh" > "$tmp" 2>/dev/null; then
     mv -f "$tmp" "$MODPATH/service.sh" 2>/dev/null
   else
     rm -f "$tmp" 2>/dev/null

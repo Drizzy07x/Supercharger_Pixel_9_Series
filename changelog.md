@@ -1,5 +1,21 @@
 # Pixel 9 Series Supercharger Changelog
 
+## v2.6.6
+
+### Reliability and State Handling
+
+- Maintenance and app optimization no longer stay blocked after an abnormal shutdown: locks now record their owner and are reclaimed when stale.
+- A background task interrupted before it finished is reported as interrupted instead of complete.
+- The selected profile and thermal profile now survive a module update.
+- Thermal Control profile buttons no longer change the performance profile.
+- Re-enabling Thermal Control restores the previously selected profile, including Charge Cool.
+- The dashboard updater is no longer skipped when its recorded PID was reused after a reboot.
+- Status and API state files are written atomically.
+- Uninstall no longer leaves module state behind under `/data/adb`.
+- WebUI: re-tapping an action no longer disables every control for the rest of the session, log tabs render the log they highlight, and the running job shows its own label.
+- Release metadata is published as a release asset, so the update feed can no longer advertise a package that does not exist yet.
+- Corrected the documented device codenames and added the Pixel 9 Pro Fold.
+
 ## v2.6.5
 
 ### WebUI Reliability and Release Consistency
