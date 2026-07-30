@@ -1,0 +1,33 @@
+{
+  "homepage": "https://github.com/Drizzy07x/Supercharger_Pixel_9_Series",
+  "support": "https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/issues",
+  "donate": "https://www.buymeacoffee.com/Drizzy_07",
+  "readme": "https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/README.md",
+  "license": "MIT",
+  "icon": "https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/docs/branding/icon.png",
+  "cover": "https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/docs/branding/social-preview.png",
+  "screenshots": [
+    "https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/docs/images/webui-overview.png",
+    "https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/docs/images/webui-profiles.png",
+    "https://raw.githubusercontent.com/Drizzy07x/Supercharger_Pixel_9_Series/main/docs/images/webui-maintenance.png"
+  ],
+  "categories": [
+    "Performance",
+    "System",
+    "Tweaks"
+  ],
+  "devices": [
+    "Pixel 9",
+    "Pixel 9 Pro",
+    "Pixel 9 Pro XL",
+    "Pixel 9 Pro Fold"
+  ],
+  "arch": [
+    "arm64-v8a"
+  ],
+  "note": {
+    "title": "Pixel 9 series only",
+    "message": "The installer verifies ro.product.device and refuses anything outside tokay, caiman, komodo, and comet. Integrated Thermal Control ships disabled and must be enabled from the WebUI after a normal boot.",
+    "color": "blue"
+  }
+}

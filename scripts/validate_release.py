@@ -39,6 +39,7 @@ ZIP_BLOCKED_PREFIXES = (
     ".git/",
     ".github/",
     "dist/",
+    "docs/",
     "release-check/",
     "scripts/",
 )
@@ -51,6 +52,8 @@ ZIP_BLOCKED_ROOT = {
     "LICENSE",
     "changelog.md",
     "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "SECURITY.md",
 }
 
 REQUIRED = {
@@ -61,6 +64,7 @@ REQUIRED = {
         "service.sh",
         "uninstall.sh",
         "update.json",
+        "common/repo.json",
         "bin/supercharger_ctl.sh",
         "webroot/index.html",
         "webroot/index.mjs",
