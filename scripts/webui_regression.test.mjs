@@ -102,7 +102,14 @@ globalThis.clearInterval = id => activeIntervals.delete(id);
 let failAppList = false;
 let failStatus = false;
 let deferStatus = false;
+let failMaintSync = false;
+let deferLogs = false;
+let statusExtra = '';
+let appOptState = 'done';
+let appOptLabel = 'Optimizing com.example.app';
 const pendingStatusCallbacks = [];
+const pendingLogCallbacks = [];
+const execLog = [];
 const statusText = [
   'HEALTH=pass', 'VERSION=v2.6.5', 'MODEL=Pixel 9 Pro', 'DEVICE=caiman',
   'ANDROID_RELEASE=16', 'ANDROID_SDK=36', 'ROOT_ENV=KernelSU',
@@ -114,22 +121,27 @@ const statusText = [
 globalThis.ksu = {
   fullScreen() {}, enableEdgeToEdge() {}, toast() {},
   exec(command, _options, callbackName) {
+    execLog.push(command);
     if (command.includes('status-quiet') && deferStatus) {
       pendingStatusCallbacks.push(callbackName);
       return;
     }
+    const logFile = command.match(/^cat '[^']*\/([^'\/]+)'/);
     let errno = 0;
     let stdout = '';
     let stderr = '';
     if (command.includes('status-quiet') && failStatus) { errno = 1; stderr = 'module status unavailable'; }
-    else if (command.includes('status-quiet')) stdout = statusText;
+    else if (command.includes('status-quiet')) stdout = statusExtra ? `${statusText}\n${statusExtra}` : statusText;
+    else if (command.includes('maintenance-status') && failMaintSync) { errno = 1; stderr = 'maintenance state unavailable'; }
     else if (command.includes('maintenance-status')) stdout = 'STATE=idle\n';
-    else if (command.includes('app-opt-status')) stdout = 'STATE=done\nLABEL=App optimization\n';
+    else if (command.includes('app-opt-status')) stdout = `STATE=${appOptState}\nLABEL=${appOptLabel}\n`;
     else if (command.includes('app-opt-log')) stdout = 'Finished';
     else if (command.includes('thermal-detect')) stdout = '';
     else if (command.includes('list-apps') && failAppList) { errno = 1; stderr = 'package manager unavailable'; }
     else if (command.includes('list-apps')) stdout = 'user|com.example.app\n';
     else if (command.includes('optimize-apps-async')) stdout = 'Started';
+    else if (logFile) stdout = `${logFile[1]} contents`;
+    if (logFile && deferLogs) { pendingLogCallbacks.push({ callbackName, stdout }); return; }
     queueMicrotask(() => globalThis[callbackName](errno, stdout, stderr));
   }
 };
@@ -164,6 +176,72 @@ test('selected-app optimization is enabled only when the filtered list has optio
   await elements.get('optimizeAllBtn').dispatch('click');
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(elements.get('optimizeSelectedBtn').disabled, true, 'busy-to-idle transition should preserve empty selection state');
+});
+
+test('a re-tap during the completion refresh cannot start a second job or strand the controls', async () => {
+  activeIntervals.clear();
+  execLog.length = 0;
+  deferStatus = true;
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(pendingStatusCallbacks.length, 1, 'the completion refresh should still be in flight');
+  assert.equal(elements.get('optimizeAllBtn').disabled, true, 'actions must stay busy until the completion refresh finishes');
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  deferStatus = false;
+  for (const callbackName of pendingStatusCallbacks.splice(0)) globalThis[callbackName](0, statusText, '');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(execLog.filter(command => command.includes('optimize-apps-async')).length, 1, 're-tap started a second background job');
+  assert.equal(elements.get('optimizeAllBtn').disabled, false, 'controls stayed disabled after the task finished');
+  assert.equal(activeIntervals.size, 0, 'the finished task left a polling interval active');
+});
+
+test('out-of-order log responses keep the highlighted tab and the rendered log together', async () => {
+  deferLogs = true;
+  const first = logButtons[0].dispatch('click');
+  const second = logButtons[2].dispatch('click');
+  deferLogs = false;
+  for (const pending of pendingLogCallbacks.splice(0).reverse()) globalThis[pending.callbackName](0, pending.stdout, '');
+  await Promise.all([first, second]);
+  assert.equal(logButtons[2].classList.contains('active'), true, 'the last requested log should stay highlighted');
+  assert.equal(logButtons[0].classList.contains('active'), false, 'only the last requested log should be highlighted');
+  assert.equal(elements.get('logBox').textContent, 'maintenance.log contents', 'a stale log response overwrote the current log');
+});
+
+test('a second copy click inside the feedback window restores the real button label', async () => {
+  const button = elements.get('copyLogBtn');
+  button.textContent = 'Copy';
+  await button.dispatch('click');
+  assert.equal(button.textContent, 'Copied');
+  await button.dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 1500));
+  assert.equal(button.textContent, 'Copy', 'the copy button kept a temporary label permanently');
+});
+
+test('an interrupted task renders as finished and stops polling', async () => {
+  activeIntervals.clear();
+  appOptState = 'interrupted';
+  await elements.get('optimizeAllBtn').dispatch('click');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.match(elements.get('optimizationBox').textContent, /^Optimizing com\.example\.app\nStatus: Interrupted\n/);
+  assert.equal(activeIntervals.size, 0, 'an interrupted task kept polling');
+  assert.equal(elements.get('optimizeAllBtn').disabled, false, 'an interrupted task left the controls disabled');
+  appOptState = 'done';
+});
+
+test('an unreadable task state during refresh keeps the dashboard usable', async () => {
+  activeIntervals.clear();
+  failMaintSync = true;
+  statusExtra = 'MAINTENANCE_TASK_STATE=running';
+  for (const id of actionIds) elements.get(id).disabled = false;
+  await import('../webroot/index.mjs?task-sync-failure-test');
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.notEqual(elements.get('statusValue').textContent, 'Unavailable', 'refreshStatus threw on an unreadable task state');
+  assert.equal(elements.get('statusSub').textContent, 'One-tap maintenance');
+  assert.equal(elements.get('optimizeAllBtn').disabled, false, 'an unreadable task state left the dashboard disabled');
+  assert.equal(activeIntervals.size, 0, 'the failed task poll left a polling interval active');
+  failMaintSync = false;
+  statusExtra = '';
 });
 
 test('state-dependent actions stay disabled while initial status is pending', async () => {

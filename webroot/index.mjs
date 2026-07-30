@@ -6,6 +6,7 @@ const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 let status = {};
 let currentLog = 'debug.log';
+let logRequest = 0;
 let appEntries = [];
 let commandBusy = false;
 let statusReady = false;
@@ -85,6 +86,7 @@ function stateLabel(value){
   if(state === 'running') return 'Running';
   if(state === 'done') return 'Complete';
   if(state === 'failed') return 'Needs review';
+  if(state === 'interrupted') return 'Interrupted';
   if(state === 'stale') return 'Stale';
   if(state === 'pass') return 'Pass';
   if(state === 'warn') return 'Warning';
@@ -284,10 +286,10 @@ function reconcileTasks(sync){
 
   if(maintRunning){
     status.TASK_STATE = 'running';
-    status.TASK_LABEL = sync.maint.LABEL || 'One-tap maintenance';
+    status.TASK_LABEL = sync?.maint?.LABEL || 'One-tap maintenance';
   } else if(appRunning){
     status.TASK_STATE = 'running';
-    status.TASK_LABEL = sync.app.LABEL || 'App optimization';
+    status.TASK_LABEL = sync?.app?.LABEL || 'App optimization';
   } else {
     status.TASK_STATE = 'idle';
     status.TASK_LABEL = 'Ready';
@@ -308,13 +310,16 @@ async function refreshStatus(){
 }
 
 async function loadLog(name=currentLog){
+  const request = ++logRequest;
   currentLog = name;
   $$('.logBtn').forEach(b => b.classList.toggle('active', b.dataset.log === name));
   $('#logBox').textContent = 'Loading log…';
   try {
     const out = await sh(`cat '${MODDIR}/${name}' 2>/dev/null || echo 'No ${name} found.'`);
+    if(request !== logRequest) return;
     $('#logBox').textContent = out.trim() || `${name} is empty.`;
   } catch(e){
+    if(request !== logRequest) return;
     $('#logBox').textContent = `Could not read ${name}:\n${e.message}`;
   }
 }
@@ -330,7 +335,6 @@ async function loadSnapshot(){
 }
 
 async function copyText(text, button){
-  const old = button ? button.textContent : '';
   let copied = false;
   try {
     if(navigator.clipboard?.writeText){
@@ -354,8 +358,11 @@ async function copyText(text, button){
   }
 
   if(button){
+    // Only snapshot the label when no feedback is pending, so a second click cannot capture 'Copied' as the real one.
+    if(button.copyTimer) clearTimeout(button.copyTimer);
+    else button.copyLabel = button.textContent;
     button.textContent = copied ? 'Copied' : 'Copy failed';
-    setTimeout(() => { button.textContent = old; }, 1400);
+    button.copyTimer = setTimeout(() => { button.textContent = button.copyLabel; button.copyTimer = null; }, 1400);
   }
   try { toast(copied ? 'Copied' : 'Copy failed'); } catch (_) {}
 }
@@ -440,9 +447,10 @@ async function loadAppList(){
 async function readOptimizationProgress(){ return { state: parseEnv(await sh(`sh '${CTL}' app-opt-status 2>/dev/null || true`)), log: await sh(`sh '${CTL}' app-opt-log 2>/dev/null || true`) }; }
 async function readMaintenanceProgress(){ return { state: parseEnv(await sh(`sh '${CTL}' maintenance-status 2>/dev/null || true`)), log: await sh(`sh '${CTL}' maintenance-log 2>/dev/null || true`) }; }
 
-function stopTimer(kind){
-  if(kind === 'app' && appPollTimer){ clearInterval(appPollTimer); appPollTimer = null; }
-  if(kind === 'maintenance' && maintPollTimer){ clearInterval(maintPollTimer); maintPollTimer = null; }
+// A poll can resolve after a newer run replaced the timer; with a timer argument only its owner may clear it.
+function stopTimer(kind, timer){
+  if(kind === 'app' && appPollTimer && (timer === undefined || timer === appPollTimer)){ clearInterval(appPollTimer); appPollTimer = null; }
+  if(kind === 'maintenance' && maintPollTimer && (timer === undefined || timer === maintPollTimer)){ clearInterval(maintPollTimer); maintPollTimer = null; }
 }
 
 async function updateOptimizationProgress(label){
@@ -454,8 +462,9 @@ async function updateOptimizationProgress(label){
   status.APP_OPT_TASK_STATE = state || 'idle';
   status.TASK_STATE = 'idle';
   status.TASK_LABEL = 'Ready';
-  setActionsBusy(false);
+  // Release the busy flag only after the refresh, so a re-tap cannot land while the state is still being read.
   await refreshStatus();
+  setActionsBusy(false);
   return false;
 }
 
@@ -463,14 +472,16 @@ function startOptimizationPolling(label){
   stopTimer('app');
   showHeaderTask(label);
   setActionsBusy(true);
+  let timer = null;
   const poll = async () => {
     if(appPollUpdating) return;
     appPollUpdating = true;
-    try { if(!await updateOptimizationProgress(label)) stopTimer('app'); }
-    catch(e){ stopTimer('app'); setActionsBusy(false); $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`; }
+    try { if(!await updateOptimizationProgress(label)) stopTimer('app', timer); }
+    catch(e){ stopTimer('app', timer); setActionsBusy(false); $('#optimizationBox').textContent = `Could not read optimization progress:\n${e.message}`; }
     finally { appPollUpdating = false; }
   };
-  appPollTimer = setInterval(poll, TASK_POLL_MS);
+  timer = setInterval(poll, TASK_POLL_MS);
+  appPollTimer = timer;
   poll();
 }
 
@@ -483,8 +494,9 @@ async function updateMaintenanceProgress(label){
   status.MAINTENANCE_TASK_STATE = state || 'idle';
   status.TASK_STATE = 'idle';
   status.TASK_LABEL = 'Ready';
-  setActionsBusy(false);
+  // Release the busy flag only after the refresh, so a re-tap cannot land while the state is still being read.
   await refreshStatus();
+  setActionsBusy(false);
   return false;
 }
 
@@ -492,14 +504,16 @@ function startMaintenancePolling(label){
   stopTimer('maintenance');
   showHeaderTask(label);
   setActionsBusy(true);
+  let timer = null;
   const poll = async () => {
     if(maintPollUpdating) return;
     maintPollUpdating = true;
-    try { if(!await updateMaintenanceProgress(label)) stopTimer('maintenance'); }
-    catch(e){ stopTimer('maintenance'); setActionsBusy(false); $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`; }
+    try { if(!await updateMaintenanceProgress(label)) stopTimer('maintenance', timer); }
+    catch(e){ stopTimer('maintenance', timer); setActionsBusy(false); $('#maintenanceBox').textContent = `Could not read maintenance progress:\n${e.message}`; }
     finally { maintPollUpdating = false; }
   };
-  maintPollTimer = setInterval(poll, TASK_POLL_MS);
+  timer = setInterval(poll, TASK_POLL_MS);
+  maintPollTimer = timer;
   poll();
 }
 
