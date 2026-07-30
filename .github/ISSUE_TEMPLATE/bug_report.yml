@@ -1,0 +1,125 @@
+name: Bug report
+description: Report incorrect, unstable, or unexpected module behavior
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before opening a report, generate a support snapshot from the WebUI
+        **Support** tab. Reports without device, build, and root details usually
+        cannot be acted on.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Preflight
+      options:
+        - label: I am on a Pixel 9 series device and the installer accepted it
+          required: true
+        - label: I rebooted after installing or after changing a profile
+          required: true
+        - label: I searched existing issues and this is not a duplicate
+          required: true
+
+  - type: input
+    id: module_version
+    attributes:
+      label: Module version
+      description: Shown in the WebUI header and in your root manager.
+      placeholder: v2.6.5
+    validations:
+      required: true
+
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - Pixel 9 (tokay)
+        - Pixel 9 Pro (caiman)
+        - Pixel 9 Pro XL (komodo)
+        - Pixel 9 Pro Fold (comet)
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Android build
+      description: "Output of: getprop ro.build.id and the Android release."
+      placeholder: "Android 16, build BP41.250725.006"
+    validations:
+      required: true
+
+  - type: input
+    id: root
+    attributes:
+      label: Root solution and version
+      placeholder: KernelSU 1.0.5 / Magisk 29.0 / APatch 10763
+    validations:
+      required: true
+
+  - type: dropdown
+    id: profile
+    attributes:
+      label: Active profile
+      options:
+        - Active Smooth
+        - Performance / Gaming
+    validations:
+      required: true
+
+  - type: dropdown
+    id: thermal
+    attributes:
+      label: Thermal Control state
+      options:
+        - "Off (default)"
+        - "On - Balanced"
+        - "On - Gaming"
+        - "On - Charge Cool"
+    validations:
+      required: true
+
+  - type: textarea
+    id: what_happened
+    attributes:
+      label: What happened
+      description: What you observed, and what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the WebUI
+        2. Switch to Performance / Gaming
+        3. Reboot
+        4. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: snapshot
+    attributes:
+      label: Support snapshot
+      description: >-
+        Paste the output of the WebUI Support tab, or attach
+        /data/adb/modules/p9pxl_supercharger/support_snapshot.txt
+      render: shell
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Relevant debug.log lines
+      description: >-
+        From /data/adb/modules/p9pxl_supercharger/debug.log. Skipped entries are
+        normal; include the lines around the failure.
+      render: shell
+    validations:
+      required: false

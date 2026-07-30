@@ -1,0 +1,53 @@
+name: Feature request
+description: Suggest a tuning change, WebUI addition, or new capability
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This module is intentionally conservative. Requests that bypass thermal
+        safety, override charging behavior, or force fixed CPU/GPU clocks in the
+        stable profile are out of scope.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve
+      description: Describe the behavior you run into today, not just the fix you have in mind.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed change
+      description: >-
+        If this touches a specific kernel node, sysfs path, or system property,
+        name it.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Tuning (CPU, GPU, memory, I/O, network, IRQ)
+        - Thermal Control
+        - WebUI dashboard
+        - Maintenance and app optimization
+        - Packaging, updates, or installer
+        - Documentation
+    validations:
+      required: true
+
+  - type: textarea
+    id: risk
+    attributes:
+      label: Stability and battery impact
+      description: >-
+        How should this behave when the kernel rejects the write, and what is the
+        expected cost in battery or thermals?
+    validations:
+      required: false

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Questions and general discussion
+    url: https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/discussions
+    about: Ask about setup, profiles, or expected behavior before filing an issue.
+  - name: Latest release and changelog
+    url: https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/releases/latest
+    about: Check whether your problem is already fixed in the newest build.
