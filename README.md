@@ -20,7 +20,7 @@
 
 **Developed by:** [Drizzy07x](https://github.com/Drizzy07x)
 
-**Target devices:** Pixel 9 Pro XL (`komodo`), Pixel 9 Pro (`caiman`), Pixel 9 (`comet`)
+**Target devices:** Pixel 9 Pro XL (`komodo`), Pixel 9 Pro (`caiman`), Pixel 9 Pro Fold (`comet`), Pixel 9 (`tokay`)
 
 **Channel:** Stable
 
@@ -55,7 +55,8 @@ This module is designed only for the **Pixel 9 series**:
 
 - **Pixel 9 Pro XL** (`komodo`)
 - **Pixel 9 Pro** (`caiman`)
-- **Pixel 9** (`comet`)
+- **Pixel 9 Pro Fold** (`comet`)
+- **Pixel 9** (`tokay`)
 
 Unsupported devices are not the target of this project.
 
