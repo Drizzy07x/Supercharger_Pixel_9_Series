@@ -100,6 +100,13 @@ ROOT_EXECUTABLE = {
 }
 
 
+# Prerelease suffix mirrors the -alpha/-beta/-rc channels derived in release.yml.
+VERSION_PATTERN = re.compile(
+    r"v(?P<major>\d+)\.(?P<minor>\d+)\.(?P<patch>\d+)"
+    r"(?P<suffix>-[0-9A-Za-z][0-9A-Za-z.-]*)?"
+)
+
+
 def norm(value):
     return str(value).replace("\\", "/").strip("/")
 
@@ -120,17 +127,29 @@ def check_main_metadata(root):
     version = module.get("version", "")
     version_code = module.get("versionCode", "")
 
-    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)", version)
+    match = VERSION_PATTERN.fullmatch(version)
+    version_core = ""
     if not match:
         errors.append(f"invalid module version: {version or '<missing>'}")
     else:
-        major, minor, patch = map(int, match.groups())
-        expected_code = major * 10000 + minor * 1000 + patch
-        if version_code != str(expected_code):
+        major, minor, patch = (int(match.group(name)) for name in ("major", "minor", "patch"))
+        version_core = f"v{major}.{minor}.{patch}"
+        # major*10000 + minor*1000 leaves a single decimal digit for minor, so the
+        # encoding stops being injective and monotonic past those bounds.
+        if minor >= 10 or patch >= 1000:
             errors.append(
-                f"module versionCode {version_code or '<missing>'} does not match "
-                f"{version} (expected {expected_code})"
+                f"module version {version} cannot be encoded: versionCode "
+                f"major*10000 + minor*1000 + patch collides once minor >= 10 or "
+                f"patch >= 1000 (v2.10.0 and v3.0.0 both encode to 30000); "
+                f"bump the major version instead"
             )
+        else:
+            expected_code = major * 10000 + minor * 1000 + patch
+            if version_code != str(expected_code):
+                errors.append(
+                    f"module versionCode {version_code or '<missing>'} does not match "
+                    f"{version} (expected {expected_code})"
+                )
 
     try:
         update = json.loads((root / "update.json").read_text(encoding="utf-8"))
@@ -142,9 +161,16 @@ def check_main_metadata(root):
         errors.append("update.json version does not match module.prop")
     if str(update.get("versionCode", "")) != version_code:
         errors.append("update.json versionCode does not match module.prop")
-    for field in ("zipUrl", "changelog"):
-        if version and version not in str(update.get(field, "")):
+    # The root manager downloads each URL and uses its raw content, so a GitHub
+    # release page in `changelog` would be rendered to the user as HTML markup.
+    for field, suffix in (("zipUrl", ".zip"), ("changelog", ".md")):
+        value = str(update.get(field, ""))
+        if version and version not in value:
             errors.append(f"update.json {field} does not reference {version}")
+        if not value.endswith(suffix):
+            errors.append(
+                f"update.json {field} must point at a {suffix} file: {value or '<missing>'}"
+            )
 
     metadata_files = {
         "customize.sh": [f"Build: {version}", f'PROFILE_VERSION="{version}"'],
@@ -158,7 +184,7 @@ def check_main_metadata(root):
 
     readme = (root / "README.md").read_text(encoding="utf-8")
     readme_versions = set(re.findall(r"v\d+\.\d+\.\d+", readme))
-    if readme_versions != {version}:
+    if readme_versions != {version_core}:
         errors.append(
             "README version markers do not match module.prop: "
             + (", ".join(sorted(readme_versions)) or "none found")

@@ -124,7 +124,8 @@ jobs:
 
           python3 scripts/validate_release.py --profile main --skip-source --zip "${ZIP_PATH}"
 
-          sha256sum "${ZIP_PATH}" > "${SHA_PATH}"
+          # Record the basename so `sha256sum -c` works where the assets land.
+          (cd dist && sha256sum "${ASSET_BASENAME}.zip" > "${ASSET_BASENAME}.zip.sha256")
 
           unzip -l "${ZIP_PATH}" | sed -n '1,200p'
           ls -lh "${ZIP_PATH}" "${SHA_PATH}"
@@ -190,6 +191,7 @@ jobs:
           ### Assets
           - `{asset}.zip`
           - `{asset}.zip.sha256`
+          - `update.json`
 
           ### Notes
           - Built automatically from the tagged source
@@ -234,6 +236,7 @@ jobs:
             gh release upload "${TAG_NAME}" \
               "${ZIP_PATH}" \
               "${SHA_PATH}" \
+              update.json \
               --clobber
 
             gh release edit "${TAG_NAME}" \
@@ -246,6 +249,7 @@ jobs:
             gh release create "${TAG_NAME}" \
               "${ZIP_PATH}" \
               "${SHA_PATH}" \
+              update.json \
               --verify-tag \
               --title "${RELEASE_TITLE}" \
               --notes-file release-notes.md \
