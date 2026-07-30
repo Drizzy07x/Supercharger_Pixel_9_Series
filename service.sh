@@ -17,10 +17,16 @@ INTEGRATED_THERMAL_PROFILE_FILE="$MODDIR/thermal_current_profile"
 INTEGRATED_THERMAL_ACTIVE_DIR="$MODDIR/system/vendor/etc"
 PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
+MAINT_LOCKDIR="$MODDIR/.maintenance.lock"
+APP_LOCKDIR="$MODDIR/.app_optimization.lock"
+MAINT_PIDFILE="$MODDIR/maintenance_task.pid"
+APP_OPT_PIDFILE="$MODDIR/app_optimization.pid"
 
 PROFILE_VERSION="v2.6.5"
 PROFILE_MODE="Unknown"
 PROFILE_FILE="$MODDIR/current_profile"
+PERSIST_STATE_DIR="/data/adb/supercharger_state"
+PERSIST_PROFILE_FILE="$PERSIST_STATE_DIR/current_profile"
 SELECTED_PROFILE="active_smooth"
 PROFILE_LABEL="Active Smooth"
 THERMAL_PROFILE_REQUEST="balanced"
@@ -358,6 +364,19 @@ thermal_profile_for() {
     esac
 }
 
+save_selected_profile() {
+    local value="$1"
+
+    echo "$value" > "$PROFILE_FILE" 2>/dev/null || return 1
+    chmod 0644 "$PROFILE_FILE" 2>/dev/null || true
+    if mkdir -p "$PERSIST_STATE_DIR" 2>/dev/null; then
+        chmod 0755 "$PERSIST_STATE_DIR" 2>/dev/null || true
+        echo "$value" > "$PERSIST_PROFILE_FILE" 2>/dev/null || true
+        chmod 0644 "$PERSIST_PROFILE_FILE" 2>/dev/null || true
+    fi
+    return 0
+}
+
 adopt_thermal_control_selection() {
     local request_env="$THERMAL_REQUEST_ENV"
     local source=""
@@ -376,8 +395,7 @@ adopt_thermal_control_selection() {
 
     [ -n "$mapped" ] || return 0
     if [ "$(read_selected_profile)" != "$mapped" ]; then
-        echo "$mapped" > "$PROFILE_FILE" 2>/dev/null || return 0
-        chmod 0644 "$PROFILE_FILE" 2>/dev/null || true
+        save_selected_profile "$mapped" || return 0
     fi
 }
 
@@ -1455,9 +1473,11 @@ write_thermal_request() {
     if [ "${SUPERCHARGER_FORCE_THERMAL_REQUEST:-0}" != "1" ]; then
         source="$(env_value THERMAL_REQUEST_SOURCE "$THERMAL_REQUEST_ENV")"
         current_target="$(env_value SUPERCHARGER_THERMAL_PROFILE_REQUEST "$THERMAL_REQUEST_ENV")"
-        if [ "$source" = "thermal_control" ] && [ "$current_target" = "charge_cool" ]; then
-            return 0
-        fi
+        case "$source" in
+            thermal_control|integrated)
+                [ "$current_target" = "charge_cool" ] && return 0
+                ;;
+        esac
     fi
     if mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null; then
         {
@@ -1573,6 +1593,8 @@ detect_thermal_addon() {
 }
 
 write_addon_api() {
+    local tmp="$ADDON_API_ENV.tmp.$$"
+
     detect_thermal_addon
     write_thermal_request "${THERMAL_PROFILE_REQUEST:-balanced}"
     {
@@ -1595,7 +1617,9 @@ write_addon_api() {
         write_env_pair "THERMAL_ADDON_VERSION" "$THERMAL_ADDON_VERSION"
         emit_integrated_thermal_status
         write_env_pair "LAST_UPDATED" "$(date)"
-    } > "$ADDON_API_ENV"
+    } > "$tmp"
+    chmod 0644 "$tmp" 2>/dev/null
+    mv -f "$tmp" "$ADDON_API_ENV" 2>/dev/null
 }
 
 get_dashboard_status() {
@@ -1634,7 +1658,35 @@ update_dashboard() {
     return 1
 }
 
+current_boot_id() {
+    [ -r /proc/sys/kernel/random/boot_id ] || return 0
+    tr -d '\r\n' < /proc/sys/kernel/random/boot_id 2>/dev/null
+}
+
+read_updater_pid() {
+    head -n 1 "$PIDFILE" 2>/dev/null | tr -d '\r\n'
+}
+
+updater_record_alive() {
+    local pid="$1"
+    local stamped
+    local current
+
+    case "$pid" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    stamped="$(sed -n '2p' "$PIDFILE" 2>/dev/null | tr -d '\r\n')"
+    current="$(current_boot_id)"
+    [ -n "$stamped" ] && [ -n "$current" ] && [ "$stamped" = "$current" ] || return 1
+    kill -0 "$pid" 2>/dev/null
+}
+
+write_updater_record() {
+    printf '%s\n%s\n' "$1" "$(current_boot_id)" > "$PIDFILE"
+}
+
 write_module_status_env() {
+    local tmp="$STATUS_ENV.tmp.$$"
     local updater_pid="none"
     local updater_state="stopped"
     local status_block_list="${BLOCK_AUDITED_LIST:-none}"
@@ -1646,11 +1698,11 @@ write_module_status_env() {
 
 
     if [ -f "$PIDFILE" ]; then
-        updater_pid="$(cat "$PIDFILE" 2>/dev/null)"
+        updater_pid="$(read_updater_pid)"
         case "$updater_pid" in
             ''|*[!0-9]*) updater_pid="invalid"; updater_state="stale" ;;
             *)
-                if kill -0 "$updater_pid" 2>/dev/null; then
+                if updater_record_alive "$updater_pid"; then
                     updater_state="running"
                 else
                     updater_state="stale"
@@ -1694,7 +1746,9 @@ write_module_status_env() {
         write_env_pair "LOG_FILE" "$LOG_FILE"
         write_env_pair "SNAPSHOT_FILE" "$SNAPSHOT_FILE"
         write_env_pair "LAST_UPDATED" "$(date)"
-    } > "$STATUS_ENV"
+    } > "$tmp"
+    chmod 0644 "$tmp" 2>/dev/null
+    mv -f "$tmp" "$STATUS_ENV" 2>/dev/null
 }
 
 write_support_snapshot() {
@@ -1768,14 +1822,14 @@ start_temp_dashboard_updater() {
     local pid
 
     if [ -f "$PIDFILE" ]; then
-        old_pid="$(cat "$PIDFILE" 2>/dev/null)"
+        old_pid="$(read_updater_pid)"
         case "$old_pid" in
             ''|*[!0-9]*)
                 rm -f "$PIDFILE" 2>/dev/null
                 rm -rf "$LOCKDIR" 2>/dev/null
                 ;;
             *)
-                if kill -0 "$old_pid" 2>/dev/null; then
+                if updater_record_alive "$old_pid"; then
                     log_line "[PASS] Dashboard updater: already running (pid=$old_pid)"
                     return 0
                 fi
@@ -1813,7 +1867,7 @@ start_temp_dashboard_updater() {
     ) &
 
     pid="$!"
-    echo "$pid" > "$PIDFILE"
+    write_updater_record "$pid"
     log_line "[PASS] Dashboard updater: started (pid=$pid)"
 }
 
@@ -1825,7 +1879,13 @@ prepare_logs() {
     chmod 0644 "$LOG_FILE" "$PREVIOUS_LOG_FILE" "$MAINTENANCE_LOG_FILE" "$STATUS_ENV" "$ADDON_API_ENV" "$SNAPSHOT_FILE" 2>/dev/null
 }
 
+clear_stale_task_state() {
+    rm -rf "$MAINT_LOCKDIR" "$APP_LOCKDIR" 2>/dev/null
+    rm -f "$MAINT_PIDFILE" "$APP_OPT_PIDFILE" 2>/dev/null
+}
+
 prepare_logs
+clear_stale_task_state
 
 {
     echo "==============================================="

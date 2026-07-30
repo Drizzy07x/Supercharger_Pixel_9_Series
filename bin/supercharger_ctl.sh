@@ -1,6 +1,7 @@
 #!/system/bin/sh
 
 MODDIR="${MODDIR:-/data/adb/modules/p9pxl_supercharger}"
+CTL="$MODDIR/bin/supercharger_ctl.sh"
 PROP_FILE="$MODDIR/module.prop"
 STATUS_ENV="$MODDIR/module_status.env"
 ADDON_API_ENV="$MODDIR/addon_api.env"
@@ -25,6 +26,9 @@ PROFILE_FILE="$MODDIR/current_profile"
 INTEGRATED_THERMAL_PROFILES="$MODDIR/thermal_profiles"
 INTEGRATED_THERMAL_STATE="$MODDIR/thermal_control.env"
 INTEGRATED_THERMAL_PROFILE_FILE="$MODDIR/thermal_current_profile"
+PERSIST_STATE_DIR="/data/adb/supercharger_state"
+PERSIST_PROFILE_FILE="$PERSIST_STATE_DIR/current_profile"
+PERSIST_THERMAL_PROFILE_FILE="$PERSIST_STATE_DIR/thermal_current_profile"
 INTEGRATED_THERMAL_ACTIVE_DIR="$MODDIR/system/vendor/etc"
 PROFILE_VERSION="$(grep '^version=' "$PROP_FILE" 2>/dev/null | head -n 1 | cut -d= -f2-)"
 [ -z "$PROFILE_VERSION" ] && PROFILE_VERSION="unknown"
@@ -123,6 +127,23 @@ read_selected_profile() {
   esac
 }
 
+ensure_persist_state_dir() {
+  mkdir -p "$PERSIST_STATE_DIR" 2>/dev/null || return 1
+  chmod 0755 "$PERSIST_STATE_DIR" 2>/dev/null || true
+  return 0
+}
+
+save_selected_profile() {
+  profile_value="$1"
+  echo "$profile_value" > "$PROFILE_FILE" 2>/dev/null || return 1
+  chmod 0644 "$PROFILE_FILE" 2>/dev/null || true
+  if ensure_persist_state_dir; then
+    echo "$profile_value" > "$PERSIST_PROFILE_FILE" 2>/dev/null || true
+    chmod 0644 "$PERSIST_PROFILE_FILE" 2>/dev/null || true
+  fi
+  return 0
+}
+
 profile_label_for() {
   case "$1" in
     performance_gaming) echo "Performance / Gaming" ;;
@@ -179,6 +200,16 @@ read_integrated_thermal_profile() {
   echo "$value"
 }
 
+save_integrated_thermal_profile() {
+  thermal_value="$1"
+  echo "$thermal_value" > "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
+  chmod 0644 "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
+  if ensure_persist_state_dir; then
+    echo "$thermal_value" > "$PERSIST_THERMAL_PROFILE_FILE" 2>/dev/null || true
+    chmod 0644 "$PERSIST_THERMAL_PROFILE_FILE" 2>/dev/null || true
+  fi
+}
+
 write_integrated_thermal_state() {
   enabled="$1"
   profile="$2"
@@ -198,8 +229,7 @@ write_integrated_thermal_state() {
     write_env_pair "LAST_UPDATED" "$(date)"
   } > "$INTEGRATED_THERMAL_STATE" 2>/dev/null
   chmod 0644 "$INTEGRATED_THERMAL_STATE" 2>/dev/null
-  echo "$profile" > "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
-  chmod 0644 "$INTEGRATED_THERMAL_PROFILE_FILE" 2>/dev/null || true
+  save_integrated_thermal_profile "$profile"
 }
 
 ensure_integrated_thermal_state() {
@@ -218,7 +248,7 @@ remove_integrated_thermal_overlay() {
 
 apply_integrated_thermal_profile() {
   profile="$1"
-  source="${2:-thermal_control}"
+  source="${2:-integrated}"
   fail_message=""
   valid_integrated_thermal_profile "$profile" || {
     echo "Invalid thermal profile: $profile"
@@ -258,11 +288,12 @@ apply_integrated_thermal_profile() {
     return 1
   fi
 
-  if [ "$source" = "thermal_control" ]; then
+  if [ "$source" = "integrated" ]; then
     if mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null; then
       {
+        write_env_pair "SUPERCHARGER_MODULE_ID" "p9pxl_supercharger"
         write_env_pair "SUPERCHARGER_THERMAL_PROFILE_REQUEST" "$profile"
-        write_env_pair "THERMAL_REQUEST_SOURCE" "thermal_control"
+        write_env_pair "THERMAL_REQUEST_SOURCE" "integrated"
         write_env_pair "LAST_UPDATED" "$(date)"
       } > "$THERMAL_REQUEST_ENV" 2>/dev/null
       chmod 0644 "$THERMAL_REQUEST_ENV" 2>/dev/null
@@ -326,8 +357,7 @@ adopt_thermal_control_selection() {
 
   [ -n "$mapped" ] || return 0
   if [ "$(read_selected_profile)" != "$mapped" ]; then
-    echo "$mapped" > "$PROFILE_FILE" 2>/dev/null || return 0
-    chmod 0644 "$PROFILE_FILE" 2>/dev/null || true
+    save_selected_profile "$mapped" || return 0
   fi
 }
 
@@ -419,9 +449,11 @@ write_thermal_request() {
   if [ "${SUPERCHARGER_FORCE_THERMAL_REQUEST:-0}" != "1" ]; then
     source="$(env_value THERMAL_REQUEST_SOURCE "$THERMAL_REQUEST_ENV")"
     current_target="$(env_value SUPERCHARGER_THERMAL_PROFILE_REQUEST "$THERMAL_REQUEST_ENV")"
-    if [ "$source" = "thermal_control" ] && [ "$current_target" = "charge_cool" ]; then
-      return 0
-    fi
+    case "$source" in
+      thermal_control|integrated)
+        [ "$current_target" = "charge_cool" ] && return 0
+        ;;
+    esac
   fi
   if mkdir -p "$THERMAL_REGISTRY_DIR" 2>/dev/null; then
     {
@@ -482,8 +514,7 @@ set_supercharger_profile() {
   esac
   label="$(profile_label_for "$target")"
   thermal="$(thermal_profile_for "$target")"
-  echo "$target" > "$PROFILE_FILE" || return 1
-  chmod 0644 "$PROFILE_FILE" 2>/dev/null
+  save_selected_profile "$target" || return 1
   echo "Selected profile: $label"
   echo "Supercharger profile ID: $target"
   echo "Thermal profile target: $thermal"
@@ -564,16 +595,39 @@ detect_thermal_addon() {
   echo "0|none"
 }
 
+current_boot_id() {
+  [ -r /proc/sys/kernel/random/boot_id ] || return 0
+  tr -d '\r\n' < /proc/sys/kernel/random/boot_id 2>/dev/null
+}
+
+read_updater_pid() {
+  head -n 1 "$PIDFILE" 2>/dev/null | tr -d '\r\n'
+}
+
+updater_record_alive() {
+  local pid="$1"
+  local stamped
+  local current
+
+  case "$pid" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  stamped="$(sed -n '2p' "$PIDFILE" 2>/dev/null | tr -d '\r\n')"
+  current="$(current_boot_id)"
+  [ -n "$stamped" ] && [ -n "$current" ] && [ "$stamped" = "$current" ] || return 1
+  kill -0 "$pid" 2>/dev/null
+}
+
 updater_state() {
   if [ ! -f "$PIDFILE" ]; then
     echo "none|stopped"
     return 0
   fi
-  pid="$(cat "$PIDFILE" 2>/dev/null)"
+  pid="$(read_updater_pid)"
   case "$pid" in
     ''|*[!0-9]*) echo "invalid|stale" ;;
     *)
-      if kill -0 "$pid" 2>/dev/null; then
+      if updater_record_alive "$pid"; then
         echo "$pid|running"
       else
         echo "$pid|stale"
@@ -725,8 +779,8 @@ write_status() {
     if [ "$maintenance_task_state" = "running" ]; then
       rm -f "$MAINT_PIDFILE" 2>/dev/null
       [ -z "$maintenance_task_label" ] && maintenance_task_label="One-tap maintenance"
-      maintenance_task_state="done"
-      write_maintenance_state "done" "$maintenance_task_label" ""
+      maintenance_task_state="interrupted"
+      write_maintenance_state "interrupted" "$maintenance_task_label" ""
     fi
   fi
 
@@ -746,8 +800,8 @@ write_status() {
     if [ "$app_opt_task_state" = "running" ]; then
       rm -f "$APP_OPT_PIDFILE" 2>/dev/null
       [ -z "$app_opt_task_label" ] && app_opt_task_label="App optimization"
-      app_opt_task_state="done"
-      write_app_opt_state "done" "$app_opt_task_label" ""
+      app_opt_task_state="interrupted"
+      write_app_opt_state "interrupted" "$app_opt_task_label" ""
     fi
   fi
 
@@ -765,6 +819,9 @@ write_status() {
   if grep -q '\[FAIL\]' "$DEBUG_LOG" 2>/dev/null; then
     health="warn"
   fi
+
+  status_tmp="$STATUS_ENV.tmp.$$"
+  api_tmp="$ADDON_API_ENV.tmp.$$"
 
   {
     write_env_pair "MODULE_ID" "p9pxl_supercharger"
@@ -806,7 +863,9 @@ write_status() {
     write_env_pair "LOG_FILE" "$DEBUG_LOG"
     write_env_pair "SNAPSHOT_FILE" "$SNAPSHOT_FILE"
     write_env_pair "LAST_UPDATED" "$(date)"
-  } > "$STATUS_ENV"
+  } > "$status_tmp"
+  chmod 0644 "$status_tmp" 2>/dev/null
+  mv -f "$status_tmp" "$STATUS_ENV" 2>/dev/null
 
   {
     write_env_pair "API_VERSION" "1"
@@ -828,7 +887,9 @@ write_status() {
     write_env_pair "THERMAL_ADDON_VERSION" "$addon_version"
     integrated_thermal_status
     write_env_pair "LAST_UPDATED" "$(date)"
-  } > "$ADDON_API_ENV"
+  } > "$api_tmp"
+  chmod 0644 "$api_tmp" 2>/dev/null
+  mv -f "$api_tmp" "$ADDON_API_ENV" 2>/dev/null
 
   [ "$STATUS_LOG_QUIET" = "1" ] || log_maintenance "status refresh completed"
   cat "$STATUS_ENV" 2>/dev/null
@@ -1149,16 +1210,58 @@ cleanup_updater_state() {
 }
 
 
+# The async wrappers run the job in a detached subshell, where $$ still expands
+# to the parent's pid. Read the live pid from procfs instead: this shell performs
+# the redirect, so /proc/self resolves here and not in a forked substitution.
+set_lock_owner_pid() {
+  local rest
+
+  LOCK_OWNER_PID=""
+  [ -r /proc/self/stat ] && read -r LOCK_OWNER_PID rest < /proc/self/stat 2>/dev/null
+  case "$LOCK_OWNER_PID" in
+    ''|*[!0-9]*) LOCK_OWNER_PID="$$" ;;
+  esac
+}
+
+lock_holder_alive() {
+  local lock_path="$1"
+  local owner
+  local stamped
+  local current
+
+  [ -r "$lock_path/pid" ] || return 1
+  owner="$(head -n 1 "$lock_path/pid" 2>/dev/null | tr -d '\r\n')"
+  case "$owner" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
+  stamped="$(sed -n '2p' "$lock_path/pid" 2>/dev/null | tr -d '\r\n')"
+  current="$(current_boot_id)"
+  [ -n "$stamped" ] && [ -n "$current" ] && [ "$stamped" = "$current" ] || return 1
+  kill -0 "$owner" 2>/dev/null
+}
+
 acquire_lock_or_exit() {
-  lock_path="$1"
-  label="$2"
-  if mkdir "$lock_path" 2>/dev/null; then
-    ACQUIRED_LOCKS="${ACQUIRED_LOCKS}${ACQUIRED_LOCKS:+ }$lock_path"
-    trap 'release_locks' EXIT INT TERM
-    return 0
+  local lock_path="$1"
+  local label="$2"
+  if ! mkdir "$lock_path" 2>/dev/null; then
+    if lock_holder_alive "$lock_path"; then
+      echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
+      return 1
+    fi
+    rm -rf "$lock_path" 2>/dev/null
+    if ! mkdir "$lock_path" 2>/dev/null; then
+      echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
+      return 1
+    fi
   fi
-  echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
-  return 1
+  set_lock_owner_pid
+  printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null
+  ACQUIRED_LOCKS="${ACQUIRED_LOCKS}${ACQUIRED_LOCKS:+ }$lock_path"
+  trap 'release_locks' EXIT
+  trap 'release_locks; exit 129' HUP
+  trap 'release_locks; exit 130' INT
+  trap 'release_locks; exit 143' TERM
+  return 0
 }
 
 release_locks() {
@@ -1166,7 +1269,7 @@ release_locks() {
     [ -n "$lock_path" ] && rm -rf "$lock_path" 2>/dev/null
   done
   ACQUIRED_LOCKS=""
-  trap - EXIT INT TERM
+  trap - EXIT HUP INT TERM
 }
 
 
@@ -1455,10 +1558,12 @@ maintenance_running() {
   [ -f "$MAINT_PIDFILE" ] || return 1
   pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
   state="$(env_value STATE "$MAINT_STATE")"
+  maint_label="$(env_value LABEL "$MAINT_STATE")"
+  [ -z "$maint_label" ] && maint_label="One-tap maintenance"
   case "$pid" in
     ''|*[!0-9]*)
       rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ "$state" = "running" ] && write_maintenance_state "done" "One-tap maintenance" ""
+      [ "$state" = "running" ] && write_maintenance_state "interrupted" "$maint_label" ""
       return 1
       ;;
   esac
@@ -1470,7 +1575,7 @@ maintenance_running() {
     return 0
   fi
   rm -f "$MAINT_PIDFILE" 2>/dev/null
-  write_maintenance_state "done" "One-tap maintenance" ""
+  write_maintenance_state "interrupted" "$maint_label" ""
   return 1
 }
 
@@ -1501,7 +1606,7 @@ maintenance_status() {
     if [ "$state" = "running" ]; then
       rm -f "$MAINT_PIDFILE" 2>/dev/null
       [ -z "$label" ] && label="One-tap maintenance"
-      write_maintenance_state "done" "$label" ""
+      write_maintenance_state "interrupted" "$label" ""
     fi
     cat "$MAINT_STATE" 2>/dev/null
     return 0
@@ -1570,10 +1675,12 @@ app_opt_running() {
   [ -f "$APP_OPT_PIDFILE" ] || return 1
   pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
   state="$(env_value STATE "$APP_OPT_STATE")"
+  opt_label="$(env_value LABEL "$APP_OPT_STATE")"
+  [ -z "$opt_label" ] && opt_label="App optimization"
   case "$pid" in
     ''|*[!0-9]*)
       rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ "$state" = "running" ] && write_app_opt_state "done" "App optimization" ""
+      [ "$state" = "running" ] && write_app_opt_state "interrupted" "$opt_label" ""
       return 1
       ;;
   esac
@@ -1585,7 +1692,7 @@ app_opt_running() {
     return 0
   fi
   rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-  write_app_opt_state "done" "App optimization" ""
+  write_app_opt_state "interrupted" "$opt_label" ""
   return 1
 }
 
@@ -1607,7 +1714,7 @@ write_app_opt_state() {
 app_opt_status() {
   if app_opt_running; then
     pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    label="$(grep "^LABEL='" "$APP_OPT_STATE" 2>/dev/null | sed "s/^LABEL='//;s/'$//")"
+    label="$(env_value LABEL "$APP_OPT_STATE")"
     [ -z "$label" ] && label="App optimization"
     write_app_opt_state "running" "$label" "$pid"
   elif [ -f "$APP_OPT_STATE" ]; then
@@ -1616,7 +1723,7 @@ app_opt_status() {
     if [ "$state" = "running" ]; then
       rm -f "$APP_OPT_PIDFILE" 2>/dev/null
       [ -z "$label" ] && label="App optimization"
-      write_app_opt_state "done" "$label" ""
+      write_app_opt_state "interrupted" "$label" ""
     fi
     cat "$APP_OPT_STATE" 2>/dev/null
     return 0
@@ -1731,8 +1838,12 @@ thermal_status_command() {
 
 thermal_enable_command() {
   profile="$1"
-  [ -n "$profile" ] || profile="$(thermal_profile_for "$(read_selected_profile)")"
-  apply_integrated_thermal_profile "$profile" "thermal_control"
+  if [ -z "$profile" ]; then
+    profile="$(read_integrated_thermal_profile)"
+    valid_integrated_thermal_profile "$profile" || profile="$(thermal_profile_for "$(read_selected_profile)")"
+    valid_integrated_thermal_profile "$profile" || profile="balanced"
+  fi
+  apply_integrated_thermal_profile "$profile" "integrated"
 }
 
 thermal_set_profile_command() {
@@ -1742,7 +1853,7 @@ thermal_set_profile_command() {
     echo "Enable it before changing thermal profiles."
     return 1
   fi
-  apply_integrated_thermal_profile "$profile" "thermal_control"
+  apply_integrated_thermal_profile "$profile" "integrated"
 }
 
 thermal_disable_command() {

@@ -28,12 +28,28 @@ ui_print " Preparing WebUI dashboard"
 ui_print " Preparing maintenance tools"
 ui_print " Preparing profile sync hooks and Performance / Gaming profile"
 
+PERSIST_STATE_DIR="/data/adb/supercharger_state"
+
+restore_persistent_state() {
+  state_name="$1"
+  state_dest="$2"
+  state_value=""
+  [ -r "$PERSIST_STATE_DIR/$state_name" ] && state_value="$(tr -d '\r\n' < "$PERSIST_STATE_DIR/$state_name" 2>/dev/null)"
+  case "$state_name:$state_value" in
+    current_profile:active_smooth|current_profile:performance_gaming) : ;;
+    thermal_current_profile:balanced|thermal_current_profile:gaming|thermal_current_profile:charge_cool) : ;;
+    thermal_current_profile:*) state_value="balanced" ;;
+    *) state_value="active_smooth" ;;
+  esac
+  echo "$state_value" > "$state_dest"
+}
+
 rm -f "$MODPATH/dashboard_updater.pid" "$MODPATH/.dashboard_updater.lock" 2>/dev/null
 rm -f "$MODPATH/app_optimization.pid" "$MODPATH/maintenance_task.pid" 2>/dev/null
 rm -rf "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" 2>/dev/null
 [ -f "$MODPATH/debug.log" ] && mv -f "$MODPATH/debug.log" "$MODPATH/debug.previous.log" 2>/dev/null
 touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
-[ -f "$MODPATH/current_profile" ] || echo "active_smooth" > "$MODPATH/current_profile"
+restore_persistent_state current_profile "$MODPATH/current_profile"
 rm -f "$MODPATH/system/vendor/etc/thermal_info_config.json" \
       "$MODPATH/system/vendor/etc/thermal_info_config_lpm.json" \
       "$MODPATH/system/vendor/etc/thermal_info_config_charge.json" 2>/dev/null
@@ -48,7 +64,7 @@ THERMAL_CONTROL_OVERLAY_ACTIVE="0"
 THERMAL_CONTROL_REBOOT_REQUIRED="0"
 THERMAL_CONTROL_MESSAGE="Off by default for a safe first boot. Enable it after the phone boots normally."
 EOF_THERMAL_DEFAULT
-[ -f "$MODPATH/thermal_current_profile" ] || echo "balanced" > "$MODPATH/thermal_current_profile"
+restore_persistent_state thermal_current_profile "$MODPATH/thermal_current_profile"
 
 if [ -f "$MODPATH/service.sh" ]; then
   tmp="$MODPATH/service.sh.tmp.$$"
