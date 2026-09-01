@@ -63,7 +63,9 @@ Tuning targets the Tensor G4 platform rather than a single model, and every writ
 
 - Android 16 QPR3+ or Android 17
 - An unlocked bootloader with Magisk, KernelSU, or APatch installed
+- Magisk 30.7 or newer when installing with Magisk (`minMagisk` 30700). Do not treat Magisk 31.0 as the floor until an official APK exists
 - A root manager with WebUI support, to reach the dashboard
+- On KernelSU / APatch 3.x, Integrated Thermal Control is a no-op unless a metamodule provides overlay/mount capability (`meta-overlayfs` and/or `meta-magicmount`). Supercharger does not ship a metamodule
 
 ---
 
@@ -77,7 +79,7 @@ Tuning targets the Tensor G4 platform rather than a single model, and every writ
 4. Reboot.
 5. Open your root manager, find **Pixel 9 Series Supercharger**, and open its **WebUI** to reach the dashboard.
 
-Thermal Control stays off until you enable it. Once the phone has booted normally, open *Profiles* &rarr; *Integrated Thermal Control* &rarr; **Enable Thermal Control**, then reboot again before judging behavior.
+Thermal Control stays off until you enable it. Once the phone has booted normally, open *Profiles* &rarr; *Integrated Thermal Control* &rarr; **Enable Thermal Control**, then reboot again before judging behavior. On KernelSU / APatch 3.x the overlay is still a no-op unless a metamodule such as `meta-overlayfs` or `meta-magicmount` is already providing overlay/mount capability. Supercharger does not install that metamodule.
 
 ### Updating
 
@@ -136,6 +138,8 @@ Reboot after switching profiles before judging behavior.
 Thermal Control profiles are bundled into the main Supercharger module, but the thermal overlay is **off by default**.
 
 This is intentional. The module does not place thermal config files under `system/vendor/etc` during installation. The user must enable Thermal Control manually from WebUI after confirming the device boots normally.
+
+On KernelSU / APatch 3.x, the thermal overlay remains a no-op unless a metamodule (`meta-overlayfs` and/or `meta-magicmount`) is installed to provide overlay/mount capability. Supercharger does not implement or bundle that metamodule.
 
 When enabled, Supercharger can keep the thermal profile aligned with the active performance profile:
 
@@ -204,6 +208,9 @@ Profile changes need a reboot. Switch, reboot, then judge over normal daily use 
 
 **Thermal Control shows as off after installing.**
 That is the intended default. Enable it from *Profiles* &rarr; *Integrated Thermal Control* once the phone boots normally, then reboot.
+
+**Thermal Control is enabled but nothing changes on KernelSU or APatch 3.x.**
+Those root solutions need a metamodule (`meta-overlayfs` and/or `meta-magicmount`) for overlay mounts. Without one, the thermal overlay is a no-op. Install a metamodule from your root manager; Supercharger does not ship one.
 
 **A tuning entry shows as skipped in the log.**
 That is the fallback working. The kernel rejected that node, so the module left it unchanged instead of forcing it. Skipped entries are expected on some builds.

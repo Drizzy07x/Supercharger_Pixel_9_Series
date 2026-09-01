@@ -16,9 +16,18 @@ case "$DEVICE" in
     ;;
   *)
     ui_print " [ERROR] Incompatible device: $DEVICE"
-    abort " Pixel 9 / Pixel 9 Pro / Pixel 9 Pro XL only "
+    abort " Pixel 9 / Pixel 9 Pro / Pixel 9 Pro XL / Pixel 9 Pro Fold only "
     ;;
 esac
+
+# Magisk 31.0 (31000) should be used as minMagisk only once an official APK exists.
+# Effective Magisk requirement remains 30.7 (versionCode 30700).
+MIN_MAGISK_CODE=30700
+if [ -z "$KSU" ] && [ -z "$APATCH" ] && [ -n "$MAGISK_VER_CODE" ]; then
+  if [ "$MAGISK_VER_CODE" -lt "$MIN_MAGISK_CODE" ]; then
+    abort " Magisk 30.7 or newer is required "
+  fi
+fi
 
 ui_print " [INFO] Android: ${RELEASE:-unknown} / SDK ${SDK:-unknown}"
 ui_print " [INFO] Preparing profile manager"
