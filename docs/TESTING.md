@@ -45,11 +45,27 @@ an incomplete owner record is conservatively treated as busy until that cleanup.
 
 ## Verified locally
 
-The maintenance checkout passed 10 Node WebUI tests and 22 Python tests (including
+The initial maintenance checkout passed 10 Node WebUI tests and 22 Python tests (including
 10 shell lifecycle tests), shell/JavaScript parsing, JSON/source validation, and
 `git diff --check` on Windows with Python 3.11, Node 24, and Git Bash. The fast
 completion, status overwrite, variable clobbering, stale-recovery race, and updater
 termination cases were reproduced against the original affected functions.
+
+The installation/update/uninstall follow-up adds nine tests in
+`scripts/test_install_lifecycle.py`, bringing the suite to 10 Node and 31 Python
+tests. These cover safe fresh-install defaults, all six persisted profile
+combinations, malformed values, stale lock cleanup, boot log rotation, device and
+Magisk gates, registry ownership, repeatable cleanup, and uninstall PID validation.
+The reinstall lock leak, non-empty/missing registry exit status, and invalid PID
+cases failed before their corrections. Installer/uninstaller logic is exposed as
+named functions so tests can use temporary paths and stub process signals without
+running the full Android entry scripts.
+
+The initial commit `ad752d8` also passed hosted
+[push checks](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/actions/runs/34074833370)
+and [PR checks](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/actions/runs/34074853523).
+Check the latest commit's results on
+[PR #11](https://github.com/Drizzy07x/Supercharger_Pixel_9_Series/pull/11) before merging.
 
 ## Device validation remains separate
 
@@ -60,5 +76,4 @@ build, root manager/version, clean boot, task progress and retry, profile
 persistence after update, Thermal Control enable/disable with reboot, and logs.
 
 The maintainer's Pixel currently has no root, so that session is deferred. No
-device performance or thermal improvement is claimed by the host checks. Hosted
-GitHub Actions results must also be checked after the maintenance branch is pushed.
+device performance or thermal improvement is claimed by the host checks.

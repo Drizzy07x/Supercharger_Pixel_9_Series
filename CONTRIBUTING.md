@@ -91,6 +91,8 @@ Shell lifecycle coverage lives in `scripts/test_task_lifecycle.py`. It extracts
 named functions into temporary directories and replaces Android operations with
 test doubles; it never launches the complete Android entry scripts on the host.
 See [Testing](docs/TESTING.md) for covered scenarios and device validation limits.
+Installation, update persistence, and uninstall cleanup are covered by
+`scripts/test_install_lifecycle.py` using the same functions-only sandbox.
 
 ## Testing on a device
 

@@ -31,6 +31,7 @@ thermal limits, or override charging behavior.
 - WebUI state changes need coverage in `scripts/webui_regression.test.mjs`.
 - Release validation changes need Python regression coverage in `scripts/test_*.py`.
 - Worker/lock/status lifecycle changes need `scripts/test_task_lifecycle.py` coverage.
+- Installer/uninstaller and profile persistence changes need `scripts/test_install_lifecycle.py` coverage.
 - Keep text LF. Keep temporary packages outside the source checkout; never ship
   logs, runtime state, docs, tests, or Git metadata in module ZIPs.
 - Do not bump versions or edit `changelog.md` during routine maintenance. Release
