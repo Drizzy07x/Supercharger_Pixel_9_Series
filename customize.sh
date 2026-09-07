@@ -55,7 +55,9 @@ restore_persistent_state() {
 
 rm -f "$MODPATH/dashboard_updater.pid" "$MODPATH/.dashboard_updater.lock" 2>/dev/null
 rm -f "$MODPATH/app_optimization.pid" "$MODPATH/maintenance_task.pid" 2>/dev/null
-rm -rf "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" 2>/dev/null
+for task_lock in "$MODPATH/.app_optimization.lock" "$MODPATH/.maintenance.lock" "$MODPATH/.app_optimization_task.lock" "$MODPATH/.maintenance_task.lock"; do
+  rm -rf "$task_lock" "$task_lock.reclaim" 2>/dev/null
+done
 [ -f "$MODPATH/debug.log" ] && mv -f "$MODPATH/debug.log" "$MODPATH/debug.previous.log" 2>/dev/null
 touch "$MODPATH/debug.log" "$MODPATH/maintenance.log" "$MODPATH/module_status.env" "$MODPATH/addon_api.env" "$MODPATH/support_snapshot.txt"
 restore_persistent_state current_profile "$MODPATH/current_profile"
