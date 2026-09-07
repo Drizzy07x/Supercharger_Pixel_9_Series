@@ -12,6 +12,8 @@ PIDFILE="$MODDIR/dashboard_updater.pid"
 LOCKDIR="$MODDIR/.dashboard_updater.lock"
 MAINT_LOCKDIR="$MODDIR/.maintenance.lock"
 APP_LOCKDIR="$MODDIR/.app_optimization.lock"
+MAINT_ASYNC_LOCKDIR="$MODDIR/.maintenance_task.lock"
+APP_ASYNC_LOCKDIR="$MODDIR/.app_optimization_task.lock"
 APP_OPT_LOG="$MODDIR/app_optimization.log"
 APP_OPT_STATE="$MODDIR/app_optimization.env"
 APP_OPT_PIDFILE="$MODDIR/app_optimization.pid"
@@ -60,8 +62,8 @@ set_module_description() {
 }
 
 write_env_pair() {
-  key="$1"
-  value="$(printf "%s" "$2" | tr -d '
+  local key="$1"
+  local value="$(printf "%s" "$2" | tr -d '
 ')"
   printf '%s="%s"
 ' "$key" "$value"
@@ -72,7 +74,8 @@ env_value() {
     local file="$2"
     local line=""
     local value=""
-    [ -n "$key" ] && [ -r "$file" ] || return 0
+    [ -n "$key" ] || return 0
+    [ "$file" = "-" ] || [ -r "$file" ] || return 0
     line="$(grep -m 1 "^${key}=" "$file" 2>/dev/null)"
     [ -n "$line" ] || return 0
     value="${line#*=}"
@@ -763,47 +766,15 @@ write_status() {
   updater_pid="${updater_info%%|*}"
   updater_status="${updater_info#*|}"
 
-  maintenance_task_state="idle"
-  maintenance_task_label="No maintenance task running"
-  maintenance_task_pid=""
-  if maintenance_running; then
-    maintenance_task_pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-    maintenance_task_state="running"
-    maintenance_task_label="$(env_value LABEL "$MAINT_STATE")"
-    [ -z "$maintenance_task_label" ] && maintenance_task_label="One-tap maintenance"
-  elif [ -f "$MAINT_STATE" ]; then
-    maintenance_task_state="$(env_value STATE "$MAINT_STATE")"
-    maintenance_task_label="$(env_value LABEL "$MAINT_STATE")"
-    [ -z "$maintenance_task_state" ] && maintenance_task_state="idle"
-    [ -z "$maintenance_task_label" ] && maintenance_task_label="No maintenance task running"
-    if [ "$maintenance_task_state" = "running" ]; then
-      rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ -z "$maintenance_task_label" ] && maintenance_task_label="One-tap maintenance"
-      maintenance_task_state="interrupted"
-      write_maintenance_state "interrupted" "$maintenance_task_label" ""
-    fi
-  fi
-
-  app_opt_task_state="idle"
-  app_opt_task_label="No app optimization running"
-  app_opt_task_pid=""
-  if app_opt_running; then
-    app_opt_task_pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    app_opt_task_state="running"
-    app_opt_task_label="$(env_value LABEL "$APP_OPT_STATE")"
-    [ -z "$app_opt_task_label" ] && app_opt_task_label="App optimization"
-  elif [ -f "$APP_OPT_STATE" ]; then
-    app_opt_task_state="$(env_value STATE "$APP_OPT_STATE")"
-    app_opt_task_label="$(env_value LABEL "$APP_OPT_STATE")"
-    [ -z "$app_opt_task_state" ] && app_opt_task_state="idle"
-    [ -z "$app_opt_task_label" ] && app_opt_task_label="No app optimization running"
-    if [ "$app_opt_task_state" = "running" ]; then
-      rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ -z "$app_opt_task_label" ] && app_opt_task_label="App optimization"
-      app_opt_task_state="interrupted"
-      write_app_opt_state "interrupted" "$app_opt_task_label" ""
-    fi
-  fi
+  # Status reads must never rewrite a worker's newer completion record.
+  local maintenance_snapshot="$(maintenance_status)"
+  local app_snapshot="$(app_opt_status)"
+  maintenance_task_state="$(printf '%s\n' "$maintenance_snapshot" | env_value STATE -)"
+  maintenance_task_label="$(printf '%s\n' "$maintenance_snapshot" | env_value LABEL -)"
+  maintenance_task_pid="$(printf '%s\n' "$maintenance_snapshot" | env_value PID -)"
+  app_opt_task_state="$(printf '%s\n' "$app_snapshot" | env_value STATE -)"
+  app_opt_task_label="$(printf '%s\n' "$app_snapshot" | env_value LABEL -)"
+  app_opt_task_pid="$(printf '%s\n' "$app_snapshot" | env_value PID -)"
 
   task_state="idle"
   task_label="No maintenance task running"
@@ -1243,19 +1214,47 @@ lock_holder_alive() {
 acquire_lock_or_exit() {
   local lock_path="$1"
   local label="$2"
-  if ! mkdir "$lock_path" 2>/dev/null; then
-    if lock_holder_alive "$lock_path"; then
+  local reclaiming=0
+  if [ -d "$lock_path.reclaim" ]; then
+    echo "[SKIP] $label lock recovery is in progress. Try again shortly."
+    return 1
+  fi
+  if mkdir "$lock_path" 2>/dev/null; then
+    # A reclaimer may have begun after the check above. This directory is still
+    # empty and ours, so withdraw before publishing an owner.
+    if [ -d "$lock_path.reclaim" ]; then
+      rmdir "$lock_path" 2>/dev/null
+      return 1
+    fi
+  else
+    # A creator may still be publishing its owner record. Missing/incomplete
+    # records are not proof of a stale lock; boot cleanup handles abandoned ones.
+    if [ ! -s "$lock_path/pid" ] || [ -z "$(sed -n '2p' "$lock_path/pid" 2>/dev/null)" ] || lock_holder_alive "$lock_path"; then
       echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
+      return 1
+    fi
+    # Serialize recovery and recheck the owner: another contender may already
+    # have replaced the stale directory with a live lock while we inspected it.
+    mkdir "$lock_path.reclaim" 2>/dev/null || return 1
+    if [ ! -s "$lock_path/pid" ] || [ -z "$(sed -n '2p' "$lock_path/pid" 2>/dev/null)" ] || lock_holder_alive "$lock_path"; then
+      rmdir "$lock_path.reclaim" 2>/dev/null
       return 1
     fi
     rm -rf "$lock_path" 2>/dev/null
     if ! mkdir "$lock_path" 2>/dev/null; then
+      rmdir "$lock_path.reclaim" 2>/dev/null
       echo "[SKIP] $label is already running. Wait for it to finish before starting another action."
       return 1
     fi
+    reclaiming=1
   fi
   set_lock_owner_pid
-  printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null
+  if ! printf '%s\n%s\n' "$LOCK_OWNER_PID" "$(current_boot_id)" > "$lock_path/pid" 2>/dev/null; then
+    rm -rf "$lock_path" 2>/dev/null
+    [ "$reclaiming" = 1 ] && rmdir "$lock_path.reclaim" 2>/dev/null
+    return 1
+  fi
+  [ "$reclaiming" = 1 ] && rmdir "$lock_path.reclaim" 2>/dev/null
   ACQUIRED_LOCKS="${ACQUIRED_LOCKS}${ACQUIRED_LOCKS:+ }$lock_path"
   trap 'release_locks' EXIT
   trap 'release_locks; exit 129' HUP
@@ -1554,66 +1553,128 @@ run_system_dexopt_job() {
   return "$rc"
 }
 
-maintenance_running() {
-  [ -f "$MAINT_PIDFILE" ] || return 1
-  pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-  state="$(env_value STATE "$MAINT_STATE")"
-  maint_label="$(env_value LABEL "$MAINT_STATE")"
-  [ -z "$maint_label" ] && maint_label="One-tap maintenance"
-  case "$pid" in
-    ''|*[!0-9]*)
-      rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ "$state" = "running" ] && write_maintenance_state "interrupted" "$maint_label" ""
-      return 1
-      ;;
-  esac
-  if [ "$state" != "running" ]; then
-    rm -f "$MAINT_PIDFILE" 2>/dev/null
-    return 1
-  fi
-  if kill -0 "$pid" 2>/dev/null; then
+read_task_status() {
+  local state_file="$1"
+  local pid_file="$2"
+  local idle_label="$3"
+  local task_log="$4"
+  local snapshot state pid recorded_pid
+  snapshot="$(cat "$state_file" 2>/dev/null)"
+  if [ -z "$snapshot" ]; then
+    write_env_pair STATE idle
+    write_env_pair LABEL "$idle_label"
+    write_env_pair PID ""
+    write_env_pair LOG "$task_log"
     return 0
   fi
-  rm -f "$MAINT_PIDFILE" 2>/dev/null
-  write_maintenance_state "interrupted" "$maint_label" ""
-  return 1
+  state="$(printf '%s\n' "$snapshot" | env_value STATE -)"
+  pid="$(printf '%s\n' "$snapshot" | env_value PID -)"
+  if [ "$state" = running ]; then
+    recorded_pid="$(cat "$pid_file" 2>/dev/null)"
+    case "$pid" in
+      ''|0|1|*[!0-9]*) state=interrupted ;;
+      *) [ "$pid" = "$recorded_pid" ] && kill -0 "$pid" 2>/dev/null || state=interrupted ;;
+    esac
+  fi
+  if [ "$state" = interrupted ]; then
+    # Report an interruption without racing the worker's atomic state rename.
+    printf '%s\n' "$snapshot" | sed 's/^STATE=.*/STATE="interrupted"/;s/^PID=.*/PID=""/'
+  else
+    printf '%s\n' "$snapshot"
+  fi
+}
+
+start_background_task() {
+  local task_lock="$1"
+  local task_pidfile="$2"
+  local task_log="$3"
+  local task_writer="$4"
+  local task_label="$5"
+  local task_pid task_rc task_launcher
+  shift 5
+
+  # Reserve the entire lifecycle before touching shared logs or state. The
+  # operation keeps its separate lock so synchronous CLI calls remain protected.
+  acquire_lock_or_exit "$task_lock" "$task_label" || return 1
+  task_launcher="$LOCK_OWNER_PID"
+  (
+    set_lock_owner_pid
+    task_pid="$LOCK_OWNER_PID"
+    trap 'rm -f "$task_pidfile" 2>/dev/null; release_locks' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    printf '%s\n%s\n' "$task_pid" "$(current_boot_id)" > "$task_lock/pid.$task_pid" &&
+      mv -f "$task_lock/pid.$task_pid" "$task_lock/pid" || exit 1
+    echo "$task_pid" > "$task_pidfile" || exit 1
+    {
+      echo "Supercharger background task"
+      echo "Started: $(date)"
+      echo "Job: $task_label"
+      echo ""
+    } > "$task_log" || exit 1
+    "$task_writer" running "$task_label" "$task_pid" || exit 1
+    : > "$task_lock/ready" || exit 1
+    while [ ! -f "$task_lock/accepted" ]; do
+      kill -0 "$task_launcher" 2>/dev/null || exit 1
+      sleep 0.05
+    done
+
+    # Isolate the operation's variables and lock traps from lifecycle ownership.
+    (
+      ACQUIRED_LOCKS=""
+      trap - EXIT HUP INT TERM
+      "$@"
+    ) >> "$task_log" 2>&1
+    task_rc="$?"
+    echo "Finished: $(date)" >> "$task_log"
+    if [ "$task_rc" -eq 0 ]; then
+      echo "Result: completed" >> "$task_log"
+      "$task_writer" done "$task_label" ""
+    else
+      echo "Result: completed with warnings or failure" >> "$task_log"
+      "$task_writer" failed "$task_label" ""
+    fi
+    log_maintenance "background task finished: $task_label (rc=$task_rc)"
+    STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
+    exit "$task_rc"
+  ) >/dev/null 2>&1 &
+  task_pid="$!"
+
+  # Ownership now belongs to the worker; the launcher must never publish state
+  # after it, or remove its lock when the WebUI command exits.
+  ACQUIRED_LOCKS=""
+  trap - EXIT HUP INT TERM
+  while [ -d "$task_lock" ] && [ ! -f "$task_lock/ready" ]; do
+    kill -0 "$task_pid" 2>/dev/null || { echo "[FAIL] Background task could not start."; return 1; }
+    sleep 0.05
+  done
+  [ -f "$task_lock/ready" ] && touch "$task_lock/accepted" || {
+    echo "[FAIL] Background task could not initialize its state."
+    return 1
+  }
+  echo "Started background task."
+  echo "Job: $task_label"
+  echo "PID: $task_pid"
+  echo "The WebUI will poll progress without freezing."
 }
 
 write_maintenance_state() {
-  state="$1"
-  label="$2"
-  pid="$3"
-  tmp="$MAINT_STATE.tmp.$$"
+  local state="$1"
+  local label="$2"
+  local pid="$3"
+  local tmp="$MAINT_STATE.tmp.$$"
   {
     write_env_pair "STATE" "$state"
     write_env_pair "LABEL" "$label"
     write_env_pair "PID" "$pid"
     write_env_pair "UPDATED" "$(date)"
     write_env_pair "LOG" "$MAINT_TASK_LOG"
-  } > "$tmp" 2>/dev/null
-  mv -f "$tmp" "$MAINT_STATE" 2>/dev/null
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$MAINT_STATE" 2>/dev/null
 }
 
 maintenance_status() {
-  if maintenance_running; then
-    pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-    label="$(env_value LABEL "$MAINT_STATE")"
-    [ -z "$label" ] && label="One-tap maintenance"
-    write_maintenance_state "running" "$label" "$pid"
-  elif [ -f "$MAINT_STATE" ]; then
-    state="$(env_value STATE "$MAINT_STATE")"
-    label="$(env_value LABEL "$MAINT_STATE")"
-    if [ "$state" = "running" ]; then
-      rm -f "$MAINT_PIDFILE" 2>/dev/null
-      [ -z "$label" ] && label="One-tap maintenance"
-      write_maintenance_state "interrupted" "$label" ""
-    fi
-    cat "$MAINT_STATE" 2>/dev/null
-    return 0
-  else
-    write_maintenance_state "idle" "No maintenance task running" ""
-  fi
-  cat "$MAINT_STATE" 2>/dev/null
+  read_task_status "$MAINT_STATE" "$MAINT_PIDFILE" "No maintenance task running" "$MAINT_TASK_LOG"
 }
 
 maintenance_task_log() {
@@ -1625,112 +1686,26 @@ maintenance_task_log() {
 }
 
 run_maintenance_background() {
-  label="One-tap maintenance"
-  if maintenance_running; then
-    pid="$(cat "$MAINT_PIDFILE" 2>/dev/null)"
-    echo "[SKIP] One-tap maintenance is already running."
-    echo "PID: $pid"
-    echo "Use the progress box to watch the current job."
-    return 1
-  fi
-
-  : > "$MAINT_TASK_LOG" 2>/dev/null
-  {
-    echo "Supercharger One-Tap Maintenance"
-    echo "Started: $(date)"
-    echo "Job: $label"
-    echo ""
-  } >> "$MAINT_TASK_LOG" 2>/dev/null
-
-  (
-    run_full_maintenance
-    rc="$?"
-    echo "" >> "$MAINT_TASK_LOG"
-    echo "Finished: $(date)" >> "$MAINT_TASK_LOG"
-    rm -f "$MAINT_PIDFILE" 2>/dev/null
-    if [ "$rc" -eq 0 ]; then
-      echo "Result: completed" >> "$MAINT_TASK_LOG"
-      write_maintenance_state "done" "$label" ""
-      log_maintenance "one-tap maintenance background job completed"
-    else
-      echo "Result: completed with warnings or failure" >> "$MAINT_TASK_LOG"
-      write_maintenance_state "failed" "$label" ""
-      log_maintenance "one-tap maintenance background job failed or returned warnings"
-    fi
-    STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-    exit "$rc"
-  ) >> "$MAINT_TASK_LOG" 2>&1 &
-
-  pid="$!"
-  echo "$pid" > "$MAINT_PIDFILE" 2>/dev/null
-  write_maintenance_state "running" "$label" "$pid"
-  STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-  echo "Started background one-tap maintenance."
-  echo "Job: $label"
-  echo "PID: $pid"
-  echo "The WebUI will poll progress without freezing."
-}
-
-app_opt_running() {
-  [ -f "$APP_OPT_PIDFILE" ] || return 1
-  pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-  state="$(env_value STATE "$APP_OPT_STATE")"
-  opt_label="$(env_value LABEL "$APP_OPT_STATE")"
-  [ -z "$opt_label" ] && opt_label="App optimization"
-  case "$pid" in
-    ''|*[!0-9]*)
-      rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ "$state" = "running" ] && write_app_opt_state "interrupted" "$opt_label" ""
-      return 1
-      ;;
-  esac
-  if [ "$state" != "running" ]; then
-    rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-    return 1
-  fi
-  if kill -0 "$pid" 2>/dev/null; then
-    return 0
-  fi
-  rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-  write_app_opt_state "interrupted" "$opt_label" ""
-  return 1
+  start_background_task "$MAINT_ASYNC_LOCKDIR" "$MAINT_PIDFILE" "$MAINT_TASK_LOG" \
+    write_maintenance_state "One-tap maintenance" run_full_maintenance
 }
 
 write_app_opt_state() {
-  state="$1"
-  label="$2"
-  pid="$3"
-  tmp="$APP_OPT_STATE.tmp.$$"
+  local state="$1"
+  local label="$2"
+  local pid="$3"
+  local tmp="$APP_OPT_STATE.tmp.$$"
   {
     write_env_pair "STATE" "$state"
     write_env_pair "LABEL" "$label"
     write_env_pair "PID" "$pid"
     write_env_pair "UPDATED" "$(date)"
     write_env_pair "LOG" "$APP_OPT_LOG"
-  } > "$tmp" 2>/dev/null
-  mv -f "$tmp" "$APP_OPT_STATE" 2>/dev/null
+  } > "$tmp" 2>/dev/null && mv -f "$tmp" "$APP_OPT_STATE" 2>/dev/null
 }
 
 app_opt_status() {
-  if app_opt_running; then
-    pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    label="$(env_value LABEL "$APP_OPT_STATE")"
-    [ -z "$label" ] && label="App optimization"
-    write_app_opt_state "running" "$label" "$pid"
-  elif [ -f "$APP_OPT_STATE" ]; then
-    state="$(env_value STATE "$APP_OPT_STATE")"
-    label="$(env_value LABEL "$APP_OPT_STATE")"
-    if [ "$state" = "running" ]; then
-      rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-      [ -z "$label" ] && label="App optimization"
-      write_app_opt_state "interrupted" "$label" ""
-    fi
-    cat "$APP_OPT_STATE" 2>/dev/null
-    return 0
-  else
-    write_app_opt_state "idle" "No app optimization running" ""
-  fi
-  cat "$APP_OPT_STATE" 2>/dev/null
+  read_task_status "$APP_OPT_STATE" "$APP_OPT_PIDFILE" "No app optimization running" "$APP_OPT_LOG"
 }
 
 app_opt_log() {
@@ -1742,64 +1717,23 @@ app_opt_log() {
 }
 
 run_app_opt_background() {
-  mode="$1"
-  target="$2"
+  local mode="$1"
+  local target="$2"
   case "$mode" in
-    all) label="Optimizing listed apps" ;;
-    system) label="Optimizing safe system apps" ;;
-    selected) label="Optimizing selected app: $target" ;;
-    dexopt) label="Android system dexopt job" ;;
+    all)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Optimizing listed apps" optimize_all_listed_apps ;;
+    system)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Optimizing safe system apps" optimize_safe_system_apps ;;
+    selected)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Optimizing selected app: $target" optimize_one_app "$target" ;;
+    dexopt)
+      start_background_task "$APP_ASYNC_LOCKDIR" "$APP_OPT_PIDFILE" "$APP_OPT_LOG" \
+        write_app_opt_state "Android system dexopt job" run_system_dexopt_job ;;
     *) echo "[FAIL] Unknown app optimization mode: $mode"; return 1 ;;
   esac
-
-  if app_opt_running; then
-    pid="$(cat "$APP_OPT_PIDFILE" 2>/dev/null)"
-    echo "[SKIP] App optimization is already running."
-    echo "PID: $pid"
-    echo "Use the progress box to watch the current job."
-    return 1
-  fi
-
-  : > "$APP_OPT_LOG" 2>/dev/null
-  {
-    echo "Supercharger App Optimization"
-    echo "Started: $(date)"
-    echo "Job: $label"
-    echo ""
-  } >> "$APP_OPT_LOG" 2>/dev/null
-
-  (
-    case "$mode" in
-      all) optimize_all_listed_apps ;;
-      system) optimize_safe_system_apps ;;
-      selected) optimize_one_app "$target" ;;
-      dexopt) run_system_dexopt_job ;;
-    esac
-    rc="$?"
-    echo "" >> "$APP_OPT_LOG"
-    echo "Finished: $(date)" >> "$APP_OPT_LOG"
-    rm -f "$APP_OPT_PIDFILE" 2>/dev/null
-    if [ "$rc" -eq 0 ]; then
-      echo "Result: completed" >> "$APP_OPT_LOG"
-      write_app_opt_state "done" "$label" ""
-      log_maintenance "app optimization completed: $label"
-    else
-      echo "Result: completed with warnings or failure" >> "$APP_OPT_LOG"
-      write_app_opt_state "failed" "$label" ""
-      log_maintenance "app optimization completed with warnings/failure: $label"
-    fi
-    STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-    exit "$rc"
-  ) >> "$APP_OPT_LOG" 2>&1 &
-
-  pid="$!"
-  echo "$pid" > "$APP_OPT_PIDFILE" 2>/dev/null
-  write_app_opt_state "running" "$label" "$pid"
-  STATUS_LOG_QUIET=1 write_status >/dev/null 2>&1
-  echo "Started background app optimization."
-  echo "Job: $label"
-  echo "PID: $pid"
-  echo "The WebUI will poll progress without freezing."
 }
 
 clear_maintenance_log() {
